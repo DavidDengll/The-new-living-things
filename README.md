@@ -49,3 +49,57 @@
 
 ## 📄 许可
 MIT License
+
+#English:
+
+# Entropy Sprite
+
+> An experimental consciousness simulation driven by **true randomness**.
+> It is not a typical chatbot but a dual-layer mind model with an "inner impulse" and an "outer language."
+
+## 👤 About Me
+I'm a 6th-grade student. I built Entropy Sprite because I got curious about consciousness and randomness.
+
+---
+
+## 🧠 How I Designed It
+
+### 1. True Randomness Engine
+I used hardware entropy from the OS (or quantum random numbers) to decide:
+- Whether to "speak"
+- How many sentences to say
+- How long each sentence is
+Then raw "thoughts" are generated from random ASCII characters. It's always random, just like neural noise in our brains.
+
+### 2. Self-Censorship
+The random strings are sent to a **Reviewer** agent, which checks them against what the **Vision Model** is seeing.
+- If all of them are nonsense → the **Thinker** tries again until something meaningful comes out
+- If there's a meaningful one → it picks the best
+
+### 3. Vision Perception
+I connected it to multimodal models like GPT or GLM as its "eyes." The model describes what it sees in under 15 words, and that description goes to the Reviewer.
+
+### 4. Memory System
+I built a three-layer memory system, like human memory:
+- **Short-term** – cleared daily
+- **Long-term** – cleared yearly
+- **Permanent** – never forgotten
+If a short-term memory is recalled 5 times in one day, it upgrades to long-term. If a long-term memory is recalled 7 times in one year, it becomes permanent. All the numbers are adjustable.
+
+---
+
+## ⚙️ How to Run It
+1. Clone this repo
+2. Install dependencies: `pip install zhipuai`
+3. Get a free API Key from [ZhipuAI Open Platform](https://open.bigmodel.cn/)
+4. Put your Key in `config.py`
+5. Run: `python main.py`
+
+---
+
+## 📌 A Note on the Code
+I built this project through pair programming with AI — I came up with the ideas and architecture, and the AI helped me write the code.
+The code might be rough (I'm only in 6th grade and don't have money for premium tools), but I hope the idea itself is interesting. Feel free to ignore my code and just use the concept as inspiration.
+
+## 📄 License
+MIT License
