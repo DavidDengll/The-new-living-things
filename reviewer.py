@@ -5,10 +5,31 @@ class Reviewer:
         self.bigram_scores = {}
         self.learning_rate = learning_rate
 
-    def score(self, raw_sentence):
+    def score(self, raw_sentence, mood=None):
+        """根据当前情绪调整打分"""
         base_score = len(set(raw_sentence).intersection(self.visual_chars))
         learned_bonus = self._evaluate_bigrams(raw_sentence.upper())
-        return base_score + learned_bonus
+        total = base_score + learned_bonus
+
+        # 情绪影响
+        if mood:
+            energy = mood.get("energy", 0.5)
+            curiosity = mood.get("curiosity", 0.5)
+            pleasure = mood.get("pleasure", 0.5)
+
+            # 精力低 → 审查更严，扣分
+            if energy < 0.3:
+                total -= 0.5
+            # 好奇心高 → 对低分容忍度提高
+            if curiosity > 0.7:
+                total += 0.3
+            # 愉悦高 → 整体更宽容
+            if pleasure > 0.7:
+                total += 0.2
+            elif pleasure < 0.3:
+                total -= 0.3
+
+        return max(0, total)
 
     def _bigrams(self, text):
         return [(text[i], text[i+1]) for i in range(len(text)-1)]
