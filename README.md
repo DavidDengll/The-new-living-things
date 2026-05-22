@@ -4,7 +4,7 @@
 > 它不是普通的聊天程序，而是一个拥有“内核冲动”与“外部语言”的双层心智模型。
 
 ## 👤 关于我
-我是一名六年级学生会c++。因为对意识和随机性感到好奇，我开始动手创造了熵灵。
+我是一名六年级学生，会 C++。因为对意识和随机性感到好奇，我开始动手创造了熵灵。
 
 ---
 
@@ -26,7 +26,7 @@
 生成的乱码会交给一个叫**审核官**的 Agent，让它结合**视觉模型**看到的场景，判断这些话有没有意义。
 - 如果全是废话 → 让**思考者**重新想，直到想出有意义的话为止
 - 如果有意义 → 排个序，挑最好的那句
-这就像我们的大脑在说话之前，会先“毙掉”无数不合时宜的念头。
+审核官不仅看乱码和视觉场景的字母匹配，还会检查乱码中是否包含了**记忆库里的真实词语**。如果内核的念头碰巧说出了一个记忆中的词（比如“喵”），即使和视觉字母不重合，也会被加分。这就像我们的大脑在说话之前，会先“毙掉”无数不合时宜的念头，但偶尔有一个念头刚好和记忆中的某件事对上了，就会被允许说出口。
 
 ### 3. 情绪模型 — 模拟内在状态
 我给它加入了三维情绪系统：
@@ -47,8 +47,13 @@
 
 **记忆持久化**：所有记忆用 SQLite 数据库存在硬盘上，关机重启也不会丢失。三层结构、升级规则、特征自更新全部保留，只是从“用脑子记”变成了“用笔记本记”。
 
+**记忆影响内核**：思考者生成乱码时，有一定概率直接从记忆库中抽取**整词片段**（2~6个字）插入到念头里。比如记忆里有“会喵喵叫”，念头里可能直接出现“喵喵”。记忆不再只是被动的仓库，它真正参与了“想法”的生成。
+
 ### 6. 本地兜底 — 断网也能说话
 大模型（GLM-4.7-Flash）是它的“主声道”，但如果 API 不可用（断网、额度用完），它不会变哑巴。内置了本地兜底回复，还会根据当前情绪给出不同的反应。
+
+### 7. 沉默时的内心闪过
+当内核决定不说话时，它依然会生成一个简短的念头（“内心一闪”），交给审核官判断。如果这个念头有意义，就会附在回答末尾（如“内心一闪：猫”）；如果无意义，就默默丢弃，只输出正常回答。这样内核永远不会完全隐身——它只是在大多数时候选择了安静，或者在说出来之前被审核官毙掉了。
 
 ---
 
@@ -59,10 +64,10 @@
 | `memory.py` | 三层记忆系统（SQLite 持久化，名称-特征结构，自动升级） |
 | `emotion.py` | 情绪模型（精力/好奇/愉悦，随时间衰减，事件触发，状态保存） |
 | `vision.py` | 视觉模型（支持模拟文字/真实图片多模态） |
-| `thinker.py` | 思考者，生成受记忆影响的随机候选句子 |
-| `reviewer.py` | 审核官，具备自学习能力，打分受情绪影响 |
+| `thinker.py` | 思考者，生成受记忆影响的随机候选句子（支持整词插入） |
+| `reviewer.py` | 审核官，具备自学习能力，打分受情绪和记忆匹配双重影响 |
 | `language_model.py` | 大模型外壳 + 本地兜底输出 |
-| `main.py` | 主系统，整合所有模块 |
+| `main.py` | 主系统，整合所有模块，沉默时也保留内心闪过痕迹 |
 
 ---
 
@@ -79,13 +84,15 @@
 
 ## 🔄 自我优化机制
 1. **动态发言阈值**：说得好就多开口，说得差就沉默
-2. **记忆影响乱码**：内核怪话里会夹杂记忆中的真实字词碎片
-3. **审查官自学习**：好的字母组合会被记住，未来更容易通过
-4. **特征自更新**：对事物的认识随观察越来越精准
-5. **好奇心提问**：连续遇到陌生事物会主动发问
-6. **情绪演化**：精力、好奇、愉悦随时间变化，影响审查和发言行为
-7. **状态持久化**：记忆和情绪在关机后不丢失，启动继续演化
-8. **本地兜底**：API 不可用时仍能输出，不会变哑巴
+2. **记忆整词插入**：内核怪话里会偶尔出现记忆中的完整词语，而非只取单个字母
+3. **记忆匹配审核**：审核官不仅看字母重合，还会检查乱码是否包含记忆中的真实内容
+4. **审查官自学习**：好的字母组合会被记住，未来更容易通过
+5. **特征自更新**：对事物的认识随观察越来越精准
+6. **好奇心提问**：连续遇到陌生事物会主动发问
+7. **情绪演化**：精力、好奇、愉悦随时间变化，影响审查和发言行为
+8. **状态持久化**：记忆和情绪在关机后不丢失，启动继续演化
+9. **本地兜底**：API 不可用时仍能输出，不会变哑巴
+10. **沉默内心闪过**：不主动说话时，内核仍有念头产生，过审后以“内心一闪”的形式出现
 
 ---
 
@@ -96,14 +103,16 @@
 ---
 
 ## 🔬 与现有项目的区别
-市面上有使用量子随机数的项目，有三层记忆系统，也有 LLM 自我审查技术。但熵灵是**第一个将这些技术有机组合**为一个模拟意识生成闭环的系统：真随机生成原始念头 → 情绪影响审查 → 记忆固化 → 自主决定表达。它不是现有任何项目的复制品，而是一个全新的组合实验。
+市面上有使用量子随机数的项目，有三层记忆系统，也有 LLM 自我审查技术。但熵灵是**第一个将这些技术有机组合**为一个模拟意识生成闭环的系统：真随机生成原始念头 → 记忆影响生成内容 → 情绪影响审查 → 记忆匹配辅助筛选 → 记忆固化 → 自主决定表达（包括沉默时的内心闪过）。它不是现有任何项目的复制品，而是一个全新的组合实验。
 
 ---
 
 ## 📄 许可
 MIT License
 
-#English:
+---
+
+# English
 
 # Entropy Sprite
 
@@ -111,7 +120,7 @@ MIT License
 > It is not a typical chatbot but a dual-layer mind model with an "inner impulse" and an "outer language."
 
 ## 👤 About Me
-I'm a 6th-grade student. I can write c++ code. I built Entropy Sprite because I got curious about consciousness and randomness.
+I'm a 6th-grade student. I can write C++ code. I built Entropy Sprite because I got curious about consciousness and randomness.
 
 ---
 
@@ -133,7 +142,7 @@ Then raw "thoughts" are generated from random ASCII characters. It's always rand
 The random strings are sent to a **Reviewer** agent, which checks them against what the **Vision Model** is seeing.
 - If all of them are nonsense → the **Thinker** tries again until something meaningful comes out
 - If there's a meaningful one → it picks the best
-This is exactly how our brain silences countless bad ideas before we open our mouth.
+The Reviewer doesn't just check letter overlap with the visual scene. It also checks whether the random sentence contains **real words from the memory bank**. If the kernel's thought happens to blurt out a word from memory (like "meow"), it gets a bonus score even if it doesn't match the visual letters. This is like how our brain silences countless bad ideas, but occasionally lets one slip through because it resonates with something we remember.
 
 ### 3. Emotion Model — Simulating Internal States
 I built a three-dimensional emotion system:
@@ -154,8 +163,13 @@ If a short-term memory is recalled 5 times in one day, it upgrades to long-term.
 
 **Persistent Memory**: All memories are stored in a SQLite database on disk, so they survive shutdowns and restarts. The three-layer structure, upgrade rules, and feature self-updating are all preserved — just moved from "remembering in the head" to "writing in a notebook."
 
+**Memory-Influenced Kernel**: When the Thinker generates random thoughts, there's a chance it will pull **whole word fragments** (2-6 characters) directly from the memory bank and insert them into the thought. For example, if memory contains "meows softly," the thought might directly contain "meow." Memory is no longer just a passive warehouse — it genuinely participates in the generation of "ideas."
+
 ### 6. Local Fallback — Speaking Even When Offline
 The large language model (GLM-4.7-Flash) is its "main voice channel," but if the API is unavailable (no internet, quota exhausted), it won't go mute. Built-in fallback responses are ready, and they adjust based on its current mood.
+
+### 7. Silent Inner Murmur
+When the kernel decides not to speak, it still generates a brief thought ("inner murmur"), which goes to the Reviewer for judgment. If the thought is meaningful, it gets appended to the output (e.g., "inner murmur: meow"). If meaningless, it's silently discarded, and only the normal response is output. This way, the kernel never fully disappears — it just chooses to stay quiet most of the time, or gets shot down by the Reviewer before speaking.
 
 ---
 
@@ -166,10 +180,10 @@ The large language model (GLM-4.7-Flash) is its "main voice channel," but if the
 | `memory.py` | Three-layer memory system (SQLite persistence, name-feature structure, auto-upgrade) |
 | `emotion.py` | Emotion model (energy/curiosity/pleasure, time decay, event triggers, state saving) |
 | `vision.py` | Vision model (supports simulated text / real image multimodal input) |
-| `thinker.py` | Thinker, generates memory-influenced random candidate sentences |
-| `reviewer.py` | Reviewer, self-learning, scoring influenced by mood |
+| `thinker.py` | Thinker, generates memory-influenced random candidate sentences (supports whole-word insertion) |
+| `reviewer.py` | Reviewer, self-learning, scoring influenced by both mood and memory matching |
 | `language_model.py` | LLM shell + local fallback output |
-| `main.py` | Main system, integrates all modules |
+| `main.py` | Main system, integrates all modules, preserves inner murmur even when silent |
 
 ---
 
@@ -186,13 +200,15 @@ The large language model (GLM-4.7-Flash) is its "main voice channel," but if the
 
 ## 🔄 Self-Optimization Mechanisms
 1. **Dynamic speak threshold**: Speaks more when saying good things, goes silent when saying nonsense
-2. **Memory-influenced output**: The kernel's strange words occasionally contain real fragments from memory
-3. **Reviewer self-learning**: Good letter combinations are remembered, making future approval easier
-4. **Feature self-updating**: Understanding of concepts becomes more accurate with each observation
-5. **Curiosity-driven questioning**: Actively asks questions when encountering unfamiliar things repeatedly
-6. **Emotion evolution**: Energy, curiosity, and pleasure change over time, affecting review and speech behavior
-7. **State persistence**: Memories and emotions survive shutdowns, continuing to evolve on restart
-8. **Local fallback**: Still able to output when API is unavailable, never goes mute
+2. **Whole-word memory insertion**: The kernel's strange words occasionally contain complete words from memory, not just single letters
+3. **Memory-matching review**: The Reviewer checks not only letter overlap but also whether the output contains real content from memory
+4. **Reviewer self-learning**: Good letter combinations are remembered, making future approval easier
+5. **Feature self-updating**: Understanding of concepts becomes more accurate with each observation
+6. **Curiosity-driven questioning**: Actively asks questions when encountering unfamiliar things repeatedly
+7. **Emotion evolution**: Energy, curiosity, and pleasure change over time, affecting review and speech behavior
+8. **State persistence**: Memories and emotions survive shutdowns, continuing to evolve on restart
+9. **Local fallback**: Still able to output when API is unavailable, never goes mute
+10. **Silent inner murmur**: Even when not actively speaking, the kernel still produces thoughts; if meaningful, they appear as an "inner murmur"
 
 ---
 
@@ -203,7 +219,7 @@ The code might be rough (I'm only in 6th grade and don't have money for premium 
 ---
 
 ## 🔬 How This Differs From Existing Projects
-There are projects using quantum random numbers, three-layer memory systems, and LLM self-censorship techniques out there. But Entropy Sprite is **the first to organically combine these technologies** into a closed-loop consciousness generation system: true random thought generation → emotion-influenced review → memory consolidation → autonomous expression. It is not a copy of any existing project, but a brand new combinatorial experiment.
+There are projects using quantum random numbers, three-layer memory systems, and LLM self-censorship techniques out there. But Entropy Sprite is **the first to organically combine these technologies** into a closed-loop consciousness generation system: true random thought generation → memory-influenced content → emotion-influenced review → memory-matching assisted filtering → memory consolidation → autonomous expression (including silent inner murmurs). It is not a copy of any existing project, but a brand new combinatorial experiment.
 
 ---
 

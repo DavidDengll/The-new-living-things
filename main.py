@@ -7,6 +7,7 @@ from language_model import LanguageModel
 from emotion import Emotion
 from randomness import true_random_byte
 import datetime
+import random
 
 class ConsciousnessSystem:
     def __init__(self, vision_mode="simulate", scene_description=None, image_path=None,
@@ -16,16 +17,13 @@ class ConsciousnessSystem:
         self.visual = VisualModel(mode=vision_mode,
                                   description=scene_description,
                                   image_path=image_path)
-        # 记忆系统（SQLite 持久化）
         self.memory = MemorySystem()
-        # 植入初始永久记忆（只在首次运行时生效，后续不会重复添加，需检查已存在）
         self._seed_initial_memories()
 
         self.thinker = Thinker(self.memory, memory_influence_prob=0.4)
         self.language_model = LanguageModel()
         self.emotion = Emotion()
 
-        # 动态阈值
         self.base_threshold = speak_threshold
         self.current_threshold = speak_threshold
         self.score_history = []
@@ -39,7 +37,6 @@ class ConsciousnessSystem:
         self.last_unknown_keyword = None
 
     def _seed_initial_memories(self):
-        """只在记忆库为空时植入先天永久记忆"""
         import sqlite3
         conn = sqlite3.connect("entropy_memory.db")
         cursor = conn.cursor()
@@ -69,19 +66,15 @@ class ConsciousnessSystem:
         return (raw / 255.0) > self.current_threshold
 
     def run_once(self):
-        # 更新情绪（自然衰减）
         self.emotion.update()
         mood = self.emotion.get_state()
 
-        # 1. 视觉感知
         scene = self.visual.see()
         print(f"👁️ 看到: {scene}")
         keyword = self.visual.extract_keywords(scene)
 
-        # 2. 大模型生成回答（兜底已内嵌）
         outer_response = self.language_model.generate_response(scene, mood)
 
-        # 3. 思考者生成
         result = self.thinker.think(keyword, scene)
         print(f"🧠 记忆查询: {result['memory_info']}")
 
@@ -94,16 +87,26 @@ class ConsciousnessSystem:
             self.unknown_streak = 0
             self.emotion.update("learn_new")
 
-        # 4. 发言决策
         if not self.should_speak():
             print("🤫 沉默")
             self.emotion.update("silence")
-            final_output = outer_response
-            final_inner_score = 0
+
+            inner_murmur = self.thinker.generate_raw_thought(length=random.randint(3, 7))
+            reviewer = Reviewer(scene, memory_system=self.memory)
+            murmur_score = reviewer.score(inner_murmur, mood)
+
+            if murmur_score >= self.min_meaning_score:
+                final_output = f"{outer_response}（内心一闪：{inner_murmur}）"
+                final_inner_score = murmur_score
+                print(f"💭 内心闪过有意义: {inner_murmur} (得分 {murmur_score})")
+            else:
+                final_output = outer_response
+                final_inner_score = 0
+                print(f"💭 内心闪过无意义，已丢弃 (得分 {murmur_score})")
         else:
             print("🗣️ 发言")
             self.emotion.update("speak")
-            reviewer = Reviewer(scene)
+            reviewer = Reviewer(scene, memory_system=self.memory)
             best_sentence = None
             best_score = -1
 
@@ -126,10 +129,8 @@ class ConsciousnessSystem:
             final_inner_score = best_score
             print(f"💬 插入: {best_sentence}")
 
-        # 动态阈值更新
         self._update_threshold(final_inner_score)
 
-        # 好奇心提问
         if self.unknown_streak >= self.curiosity_threshold:
             question = self.language_model.generate_question(self.last_unknown_keyword)
             final_output = f"[好奇心] {question} -- {final_output}"

@@ -2,7 +2,6 @@
 import sqlite3
 import datetime
 import random
-import os
 
 DB_PATH = "entropy_memory.db"
 
@@ -41,9 +40,7 @@ class MemorySystem:
     def _cleanup(self):
         today = self._today()
         cursor = self.conn.cursor()
-        # 清理短期记忆
         cursor.execute("DELETE FROM memories WHERE level='short' AND created != ?", (today,))
-        # 清理长期记忆（年份不同）
         cursor.execute("DELETE FROM memories WHERE level='long' AND substr(created,1,4) != ?", (today[:4],))
         self.conn.commit()
         if cursor.rowcount > 0:
@@ -68,14 +65,11 @@ class MemorySystem:
                 mem["mentioned_count"] = 1
             mem["last_mentioned_date"] = today
 
-            # 特征更新
             if new_feature:
                 self._update_feature(mem, new_feature)
 
-            # 检查升级
             self._try_upgrade(mem)
 
-            # 写回数据库
             cursor.execute("""
                 UPDATE memories SET mentioned_count=?, last_mentioned_date=?, feature=?, level=?
                 WHERE id=?
@@ -105,7 +99,7 @@ class MemorySystem:
         mem["feature"] = "、".join(top_words)
         print(f"🔄 特征更新: {mem['name']} → {mem['feature']}")
 
-    def get_random_fragment(self):
+    def get_random_fragment(self, min_len=1, max_len=4):
         cursor = self.conn.cursor()
         cursor.execute("SELECT feature FROM memories WHERE level IN ('permanent','long') ORDER BY RANDOM() LIMIT 1")
         row = cursor.fetchone()
@@ -115,13 +109,14 @@ class MemorySystem:
         if not row:
             return ""
         feat = row[0]
-        max_start = max(0, len(feat) - 1)
+        if len(feat) <= min_len:
+            return feat
+        max_start = max(0, len(feat) - min_len)
         start = random.randint(0, max_start)
-        end = min(start + random.randint(1, 4), len(feat))
+        end = min(start + random.randint(min_len, max_len), len(feat))
         return feat[start:end]
 
     def add_short(self, name, feature):
-        # 永久记忆同名不添加
         cursor = self.conn.cursor()
         cursor.execute("SELECT id FROM memories WHERE name=? AND level='permanent'", (name,))
         if cursor.fetchone():
