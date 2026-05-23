@@ -1,10 +1,29 @@
 # reviewer.py
+import json
+import os
+
+BIGRAM_STATE_FILE = "bigram_scores.json"
+
 class Reviewer:
     def __init__(self, visual_summary, memory_system=None, learning_rate=0.1):
         self.visual_chars = set(visual_summary.upper())
         self.memory_system = memory_system
-        self.bigram_scores = {}
         self.learning_rate = learning_rate
+        # 加载持久化的 bigram 分数
+        self.bigram_scores = self._load_bigrams()
+
+    def _load_bigrams(self):
+        if os.path.exists(BIGRAM_STATE_FILE):
+            try:
+                with open(BIGRAM_STATE_FILE, 'r') as f:
+                    return json.load(f)
+            except:
+                return {}
+        return {}
+
+    def _save_bigrams(self):
+        with open(BIGRAM_STATE_FILE, 'w') as f:
+            json.dump(self.bigram_scores, f)
 
     def score(self, raw_sentence, mood=None):
         base_score = len(set(raw_sentence).intersection(self.visual_chars))
@@ -40,15 +59,19 @@ class Reviewer:
 
         for row in rows:
             feature = row[0].upper()
+            # 修复 break 逻辑：每个 feature 最多匹配一次
+            matched = False
             for i in range(len(feature) - 1):
+                if matched:
+                    break
                 for j in range(i + 2, len(feature) + 1):
                     sub = feature[i:j]
                     if sub in sentence_upper:
                         bonus += 3
-                        break
-                else:
-                    continue
-                break
+                        matched = True
+                        break  # 跳出内层 j 循环
+                # matched 后外层循环会自动 break（通过上面的 if matched）
+            # 继续下一个 feature
         return bonus
 
     def _bigrams(self, text):
@@ -74,3 +97,5 @@ class Reviewer:
             if p not in self.bigram_scores:
                 self.bigram_scores[p] = 0
             self.bigram_scores[p] = (1 - self.learning_rate) * self.bigram_scores[p] + self.learning_rate * score
+        # 每次更新后持久化
+        self._save_bigrams()

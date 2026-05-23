@@ -48,6 +48,7 @@ class ConsciousnessSystem:
         conn.close()
 
     def _update_threshold(self, final_score):
+        """更新动态阈值，仅当传入有效分数（非零或非负且非特殊情况）"""
         self.score_history.append(final_score)
         if len(self.score_history) > self.history_size:
             self.score_history.pop(0)
@@ -61,9 +62,18 @@ class ConsciousnessSystem:
                 self.current_threshold = self.base_threshold
             print(f"📈 动态阈值: {self.current_threshold:.2f}")
 
-    def should_speak(self):
+    def should_speak(self, mood):
+        """
+        结合情绪状态决定是否发言。
+        好奇心高、精力高会降低阈值（更容易说话），反之升高。
+        """
+        curiosity = mood.get("curiosity", 0.5)
+        energy = mood.get("energy", 0.5)
+        # 阈值调整：好奇+0.1，每点好奇可降低0.3；精力低则惩罚
+        adjusted_threshold = self.current_threshold - (curiosity - 0.5) * 0.4 + (0.5 - energy) * 0.3
+        adjusted_threshold = max(0.1, min(0.95, adjusted_threshold))
         raw = true_random_byte()
-        return (raw / 255.0) > self.current_threshold
+        return (raw / 255.0) > adjusted_threshold
 
     def run_once(self):
         self.emotion.update()
@@ -87,7 +97,7 @@ class ConsciousnessSystem:
             self.unknown_streak = 0
             self.emotion.update("learn_new")
 
-        if not self.should_speak():
+        if not self.should_speak(mood):
             print("🤫 沉默")
             self.emotion.update("silence")
 
@@ -99,37 +109,52 @@ class ConsciousnessSystem:
                 final_output = f"{outer_response}（内心一闪：{inner_murmur}）"
                 final_inner_score = murmur_score
                 print(f"💭 内心闪过有意义: {inner_murmur} (得分 {murmur_score})")
+                # 有意义的闪过参与阈值调整
+                self._update_threshold(final_inner_score)
             else:
                 final_output = outer_response
                 final_inner_score = 0
                 print(f"💭 内心闪过无意义，已丢弃 (得分 {murmur_score})")
+                # 无意义的闪过不更新阈值，避免反直觉
         else:
             print("🗣️ 发言")
             self.emotion.update("speak")
             reviewer = Reviewer(scene, memory_system=self.memory)
             best_sentence = None
             best_score = -1
+            hint = None   # 用于重试时引导生成
 
             for attempt in range(1, self.max_retries + 1):
-                scored = [(s, reviewer.score(s, mood)) for s in result['raw_sentences']]
+                # 如果有 hint（上次最佳），传给 think 方法
+                current_result = self.thinker.think(keyword, scene, hint=hint)
+                scored = [(s, reviewer.score(s, mood)) for s in current_result['raw_sentences']]
                 current_best, current_score = max(scored, key=lambda x: x[1])
-                print(f"  🔄 {attempt}: {result['raw_sentences']} 最高分 {current_score}")
+                print(f"  🔄 {attempt}: {current_result['raw_sentences']} 最高分 {current_score}")
+
                 if current_score > best_score:
                     best_score = current_score
                     best_sentence = current_best
+                    # 提取最佳句子的特征片段作为下次重试的 hint
+                    if len(best_sentence) >= 2:
+                        hint = best_sentence[-2:]  # 取最后两个字符作为提示
+                    else:
+                        hint = best_sentence
+
                 if best_score >= self.min_meaning_score:
+                    print(f"  ✅ 达到意义阈值，停止重试")
                     break
                 else:
                     if attempt < self.max_retries:
-                        result = self.thinker.think(keyword, scene)
+                        print("  ⚠️ 分数过低，尝试基于 hint 重新生成...")
+                    else:
+                        print(f"  ❌ 已达最大重试次数，采用当前最佳。")
 
             reviewer.update_from_feedback(best_sentence, best_score)
             append_text = f" {best_sentence}"
             final_output = outer_response + append_text
             final_inner_score = best_score
             print(f"💬 插入: {best_sentence}")
-
-        self._update_threshold(final_inner_score)
+            self._update_threshold(final_inner_score)
 
         if self.unknown_streak >= self.curiosity_threshold:
             question = self.language_model.generate_question(self.last_unknown_keyword)
