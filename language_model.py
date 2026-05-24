@@ -1,6 +1,7 @@
 # language_model.py
 from zhipuai import ZhipuAI
 from config import ZHIPU_API_KEY, ZHIPU_MODEL_NAME
+import random
 
 class LanguageModel:
     def __init__(self):
@@ -8,7 +9,6 @@ class LanguageModel:
             raise ValueError("请在 config.py 或环境变量中设置有效的 ZHIPU_API_KEY")
         self.client = ZhipuAI(api_key=ZHIPU_API_KEY)
         self.model_name = ZHIPU_MODEL_NAME
-        # 本地兜底回复库
         self.fallback_templates = [
             "我看着眼前的一切，陷入了沉思。",
             "今天的感觉有点不一样。",
@@ -51,8 +51,6 @@ class LanguageModel:
             return f"那是什么？「{unknown_keyword}」是什么东西？"
 
     def _fallback_output(self, mood=None):
-        """根据情绪从本地模板中选择或生成简单描述"""
-        import random
         if mood:
             energy = mood.get("energy", 0.5)
             curiosity = mood.get("curiosity", 0.5)

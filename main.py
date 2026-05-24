@@ -11,7 +11,7 @@ import random
 
 class ConsciousnessSystem:
     def __init__(self, vision_mode="simulate", scene_description=None, image_path=None,
-                 speak_threshold=0.6, min_meaning_score=1, max_retries=5,
+                 speak_threshold=0.6, min_meaning_score=4, max_retries=5,
                  curiosity_threshold=3):
         print(f"⚙️ 初始化视觉感知器...")
         self.visual = VisualModel(mode=vision_mode,
@@ -48,32 +48,28 @@ class ConsciousnessSystem:
         conn.close()
 
     def _update_threshold(self, final_score):
-        """更新动态阈值，仅当传入有效分数（非零或非负且非特殊情况）"""
+        if final_score <= 0:
+            return
         self.score_history.append(final_score)
         if len(self.score_history) > self.history_size:
             self.score_history.pop(0)
         if len(self.score_history) >= 3:
             avg = sum(self.score_history) / len(self.score_history)
-            if avg > 2.0:
+            if avg > 7.0:
                 self.current_threshold = max(0.2, self.base_threshold - 0.15)
-            elif avg < 1.0:
+            elif avg < 3.0:
                 self.current_threshold = min(0.9, self.base_threshold + 0.15)
             else:
                 self.current_threshold = self.base_threshold
             print(f"📈 动态阈值: {self.current_threshold:.2f}")
 
     def should_speak(self, mood):
-        """
-        结合情绪状态决定是否发言。
-        好奇心高、精力高会降低阈值（更容易说话），反之升高。
-        """
         curiosity = mood.get("curiosity", 0.5)
         energy = mood.get("energy", 0.5)
-        # 阈值调整：好奇+0.1，每点好奇可降低0.3；精力低则惩罚
-        adjusted_threshold = self.current_threshold - (curiosity - 0.5) * 0.4 + (0.5 - energy) * 0.3
-        adjusted_threshold = max(0.1, min(0.95, adjusted_threshold))
+        adjusted = self.current_threshold - (curiosity - 0.5) * 0.4 + (0.5 - energy) * 0.3
+        adjusted = max(0.1, min(0.95, adjusted))
         raw = true_random_byte()
-        return (raw / 255.0) > adjusted_threshold
+        return (raw / 255.0) > adjusted
 
     def run_once(self):
         self.emotion.update()
@@ -103,40 +99,39 @@ class ConsciousnessSystem:
 
             inner_murmur = self.thinker.generate_raw_thought(length=random.randint(3, 7))
             reviewer = Reviewer(scene, memory_system=self.memory)
-            murmur_score = reviewer.score(inner_murmur, mood)
+            murmur_score, murmur_reason = reviewer.judge(inner_murmur)
 
             if murmur_score >= self.min_meaning_score:
                 final_output = f"{outer_response}（内心一闪：{inner_murmur}）"
                 final_inner_score = murmur_score
-                print(f"💭 内心闪过有意义: {inner_murmur} (得分 {murmur_score})")
-                # 有意义的闪过参与阈值调整
+                print(f"💭 内心闪过有意义: {inner_murmur} (得分 {murmur_score}/10)")
                 self._update_threshold(final_inner_score)
             else:
-                final_output = outer_response
+                final_output = f"{outer_response}（…）"
                 final_inner_score = 0
-                print(f"💭 内心闪过无意义，已丢弃 (得分 {murmur_score})")
-                # 无意义的闪过不更新阈值，避免反直觉
+                print(f"💭 内心闪过无意义: {inner_murmur} ({murmur_reason})")
         else:
             print("🗣️ 发言")
             self.emotion.update("speak")
             reviewer = Reviewer(scene, memory_system=self.memory)
             best_sentence = None
             best_score = -1
-            hint = None   # 用于重试时引导生成
+            hint = None
 
             for attempt in range(1, self.max_retries + 1):
-                # 如果有 hint（上次最佳），传给 think 方法
                 current_result = self.thinker.think(keyword, scene, hint=hint)
-                scored = [(s, reviewer.score(s, mood)) for s in current_result['raw_sentences']]
+                scored = []
+                for s in current_result['raw_sentences']:
+                    semantic_score, _ = reviewer.judge(s)
+                    scored.append((s, semantic_score))
                 current_best, current_score = max(scored, key=lambda x: x[1])
                 print(f"  🔄 {attempt}: {current_result['raw_sentences']} 最高分 {current_score}")
 
                 if current_score > best_score:
                     best_score = current_score
                     best_sentence = current_best
-                    # 提取最佳句子的特征片段作为下次重试的 hint
                     if len(best_sentence) >= 2:
-                        hint = best_sentence[-2:]  # 取最后两个字符作为提示
+                        hint = best_sentence[-2:]
                     else:
                         hint = best_sentence
 
@@ -149,7 +144,6 @@ class ConsciousnessSystem:
                     else:
                         print(f"  ❌ 已达最大重试次数，采用当前最佳。")
 
-            reviewer.update_from_feedback(best_sentence, best_score)
             append_text = f" {best_sentence}"
             final_output = outer_response + append_text
             final_inner_score = best_score
@@ -175,7 +169,7 @@ if __name__ == "__main__":
         vision_mode="simulate",
         scene_description="一只橘猫趴在窗台上，阳光照在它身上",
         speak_threshold=0.6,
-        min_meaning_score=1,
+        min_meaning_score=4,
         max_retries=5,
         curiosity_threshold=3
     )
