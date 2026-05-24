@@ -36,10 +36,14 @@ class ConsciousnessSystem:
         self.curiosity_threshold = curiosity_threshold
         self.last_unknown_keyword = None
 
-        # ✅ 新增：连续被否计数器，触发反驳冲动
         self.rejection_streak = 0
 
     def _seed_initial_memories(self):
+        """
+        只在记忆库为空时植入先天永久记忆。
+        使用 name=概念名, feature=特征描述 的统一格式。
+        与 memory.search(name) 和 reviewer.judge 返回的 related_concept 保持一致。
+        """
         import sqlite3
         conn = sqlite3.connect("entropy_memory.db")
         cursor = conn.cursor()
@@ -67,13 +71,8 @@ class ConsciousnessSystem:
             print(f"📈 动态阈值: {self.current_threshold:.2f}")
 
     def should_speak(self, mood, rejection_bonus=0.0):
-        """
-        结合情绪和反驳冲动决定是否发言。
-        rejection_bonus：连续被否时临时提高发言概率（反驳冲动）。
-        """
         curiosity = mood.get("curiosity", 0.5)
         energy = mood.get("energy", 0.5)
-        # 反驳冲动：连续被否越多，越想说（降低阈值）
         adjusted = self.current_threshold - (curiosity - 0.5) * 0.4 + (0.5 - energy) * 0.3 - rejection_bonus
         adjusted = max(0.05, min(0.95, adjusted))
         raw = true_random_byte()
@@ -89,7 +88,8 @@ class ConsciousnessSystem:
 
         outer_response = self.language_model.generate_response(scene, mood)
 
-        result = self.thinker.think(keyword, scene)
+        # ✅ 初始 think 不传 hint（第一轮没有审核官反馈）
+        result = self.thinker.think(keyword, scene, hint=None)
         print(f"🧠 记忆查询: {result['memory_info']}")
 
         is_unknown = "不认识" in result['memory_info']
@@ -101,7 +101,6 @@ class ConsciousnessSystem:
             self.unknown_streak = 0
             self.emotion.update("learn_new")
 
-        # ✅ 计算反驳冲动（连续被否的次数越多，越想反驳）
         rejection_bonus = min(0.3, self.rejection_streak * 0.1)
 
         if not self.should_speak(mood, rejection_bonus):
@@ -117,13 +116,12 @@ class ConsciousnessSystem:
                 final_inner_score = murmur_score
                 print(f"💭 内心闪过有意义: {inner_murmur} (得分 {murmur_score}/10)")
                 self._update_threshold(final_inner_score)
-                self.rejection_streak = 0  # 被接受了，重置反驳冲动
+                self.rejection_streak = 0
             else:
                 final_output = f"{outer_response}（…）"
                 final_inner_score = 0
-                self.rejection_streak += 1  # ✅ 被否了，累积反驳冲动
-                # ✅ 好奇心从审核官的低分中自然增长（分数越低，好奇心增得越多）
-                curiosity_boost = (10 - murmur_score) / 20  # 0分→+0.5, 3分→+0.35, 高分不变
+                self.rejection_streak += 1
+                curiosity_boost = (10 - murmur_score) / 20
                 self.emotion.curiosity = min(1.0, self.emotion.curiosity + curiosity_boost)
                 print(f"💭 内心闪过无意义: {inner_murmur} ({murmur_reason}) | 反驳冲动+1 | 好奇+{curiosity_boost:.2f}")
         else:
@@ -136,6 +134,7 @@ class ConsciousnessSystem:
             hint = None
 
             for attempt in range(1, self.max_retries + 1):
+                # ✅ 用审核官返回的 related_concept 作为 hint 传给下一轮 think
                 current_result = self.thinker.think(keyword, scene, hint=hint)
                 scored = []
                 for s in current_result['raw_sentences']:
@@ -148,9 +147,9 @@ class ConsciousnessSystem:
                     best_score = current_score
                     best_sentence = current_best
                     best_concept = current_concept
-                    # ✅ 用审核官返回的“最相关记忆概念”作为下一轮 hint
-                    if best_concept:
-                        hint = best_concept
+                    # ✅ 优先用审核官返回的最相关记忆概念，其次用最佳句子尾部
+                    if best_concept and best_concept.strip():
+                        hint = best_concept.strip()
                     elif len(best_sentence) >= 2:
                         hint = best_sentence[-2:]
                     else:
@@ -170,7 +169,7 @@ class ConsciousnessSystem:
             final_inner_score = best_score
             print(f"💬 插入: {best_sentence}")
             self._update_threshold(final_inner_score)
-            self.rejection_streak = 0  # 成功说出话，重置反驳冲动
+            self.rejection_streak = 0
 
         if self.unknown_streak >= self.curiosity_threshold:
             question = self.language_model.generate_question(self.last_unknown_keyword)
