@@ -31,16 +31,19 @@
 - 4~6 分：有一定关联（默认通过线）
 - 7~10 分：明确相关甚至完美契合
 
-如果所有念头都低于 4 分 → **思考者**重新生成。重试时，上次最佳句子的尾部会作为“引导”传给思考者，让下一次生成更有方向感。如果多次重试仍不通过，取最高分的那句。
+审核官还会从记忆库中选出一个**与当前场景最相关的概念**，反馈给思考者，指导下一轮念头的生成方向。这样记忆插入不再是“随机复制粘贴”，而是被审核官引导到有意义的方向。
 
-这和旧版“只做字母匹配”的审核官完全不同——现在它能真正理解“猫”和场景里的一只猫是相关的，而“KJDM”是毫无意义的。
+如果所有念头都低于 4 分 → **思考者**重新生成。如果多次重试仍不通过，取最高分的那句。
 
 ### 3. 情绪模型 — 模拟内在状态
 三维情绪系统：
 - **精力**：累了就不想说话，休息会恢复
 - **好奇心**：好奇时就爱提问，容易插嘴
 - **愉悦**：开心时宽容，不开心时挑剔
-情绪随时间自然衰减，也被事件影响。情绪不仅影响审核官打分，还会直接影响发言冲动——好奇心高时更容易开口，精力低时更倾向于沉默。每次关机的情绪会被保存，下次启动继续演化。
+
+情绪随时间自然衰减，也被事件影响。好奇心不再只是一个硬编码计数器——当审核官给某个念头打出低分时（说明“完全不理解”），好奇心会自然增长。情绪不仅影响审核官打分，还会直接影响发言冲动。
+
+**反驳冲动**：当内核的念头连续被审核官否定时，系统会累积“反驳冲动”，临时提高发言概率。这避免了“越被否定越沉默”的单向趋近，让熵灵在被打压时反而更有表达欲。
 
 ### 4. 视觉感知 — 环境的输入
 用 GPT 或 GLM 等多模态模型作为“眼睛”。看到画面后，用不超过 15 个字简短描述，作为审核官判断的依据。
@@ -54,13 +57,13 @@
 
 **记忆持久化**：所有记忆用 SQLite 存在硬盘上，关机重启不丢失。
 
-**记忆影响内核**：思考者生成乱码时，有一定概率从记忆库中抽取整词片段（2~6 个字）插入念头里。
+**记忆影响内核**：思考者生成乱码时，审核官反馈的“最相关记忆概念”会作为引导，让下一轮生成的念头往相关方向靠。记忆不再是被动的仓库，而是通过审核官的中转，真正参与了“想法”的生成方向。
 
 ### 6. 本地兜底 — 断网也能说话
 大模型（GLM-4.7-Flash）是“主声道”。如果 API 不可用，内置本地兜底回复，根据当前情绪给出不同反应。
 
 ### 7. 沉默时的内心闪过
-当内核决定不说话时，它仍会生成一个简短念头交给审核官判断。如果语义上有意义，附在回答末尾（如“内心一闪：猫”）；如果无意义，只留下一个低调的“（…）”。无意义的念头不影响发言阈值，避免“越被否越想说”的反直觉逻辑。
+当内核决定不说话时，它仍会生成一个简短念头交给审核官判断。如果语义上有意义，附在回答末尾（如“内心一闪：猫”）；如果无意义，只留下一个低调的“（…）”。无意义的念头不影响发言阈值，但会累积反驳冲动。
 
 ---
 
@@ -71,10 +74,10 @@
 | `memory.py` | 三层记忆系统（SQLite 持久化，名称-特征结构，自动升级） |
 | `emotion.py` | 情绪模型（精力/好奇/愉悦，随时间衰减，事件触发，状态保存） |
 | `vision.py` | 视觉模型（支持模拟文字/真实图片多模态） |
-| `thinker.py` | 思考者，支持整词插入和重试引导生成 |
-| `reviewer.py` | 语义审查官，调用大模型做 0~10 分语义关联判断 |
+| `thinker.py` | 思考者，支持整词插入和审核官反馈引导生成 |
+| `reviewer.py` | 语义审查官，调用大模型做 0~10 分语义关联判断，并返回最相关记忆概念 |
 | `language_model.py` | 大模型外壳 + 本地兜底输出 + 好奇心提问 |
-| `main.py` | 主系统，整合所有模块 |
+| `main.py` | 主系统，整合反驳冲动、好奇心自然增长、情绪影响发言冲动 |
 
 ---
 
@@ -91,16 +94,19 @@
 
 ## 🔄 自我优化机制
 1. **情绪影响发言冲动**：好奇高更容易开口，精力低更倾向于沉默
-2. **语义审查官**：大模型从语义层面判断念头是否有意义，不再只看字母匹配
-3. **重试引导生成**：审核不通过时，上次最佳句尾作为引导传给思考者
-4. **动态发言阈值**：说得好就多开口，说得差就沉默；沉默被否不降阈值
-5. **记忆整词插入**：内核怪话里会偶尔出现记忆中的完整词语
-6. **特征自更新**：对事物的认识随观察越来越精准
-7. **好奇心提问**：连续遇到陌生事物会主动发问
-8. **情绪演化**：精力、好奇、愉悦随时间变化
-9. **状态持久化**：记忆和情绪在关机后不丢失
-10. **本地兜底**：API 不可用时仍能输出
-11. **沉默内心闪过**：不说话时内核仍有念头产生，过审后以“内心一闪”形式出现
+2. **反驳冲动**：连续被否时反而更想说，避免变成“应声虫”
+3. **好奇心自然增长**：审核官打出低分时好奇心自动上升，不再只靠硬编码计数器
+4. **语义审查官**：大模型从语义层面判断念头是否有意义，并反馈最相关记忆概念
+5. **审查官引导记忆插入**：记忆碎片不再是随机复制，而是被审核官引导到与场景相关的方向
+6. **重试引导生成**：审核不通过时，用审核官返回的关联概念作为 hint 传给思考者
+7. **动态发言阈值**：说得好就多开口，说得差就沉默
+8. **记忆整词插入**：内核怪话里会偶尔出现记忆中的完整词语
+9. **特征自更新**：对事物的认识随观察越来越精准
+10. **好奇心提问**：连续遇到陌生事物会主动发问
+11. **情绪演化**：精力、好奇、愉悦随时间变化
+12. **状态持久化**：记忆和情绪在关机后不丢失
+13. **本地兜底**：API 不可用时仍能输出
+14. **沉默内心闪过**：不说话时内核仍有念头产生，过审后以“内心一闪”形式出现
 
 ---
 
@@ -111,7 +117,7 @@
 ---
 
 ## 🔬 与现有项目的区别
-市面上有使用量子随机数的项目，有三层记忆系统，也有 LLM 自我审查技术。但熵灵是**第一个将这些技术有机组合**为一个模拟意识生成闭环的系统：真随机生成原始念头 → 记忆影响生成内容 → 情绪影响发言冲动 → 大模型语义审查 → 重试引导改进 → 记忆固化 → 自主决定表达（包括沉默时的内心闪过）。它不是现有任何项目的复制品，而是一个全新的组合实验。
+市面上有使用量子随机数的项目，有三层记忆系统，也有 LLM 自我审查技术。但熵灵是**第一个将这些技术有机组合**为一个模拟意识生成闭环的系统：真随机生成原始念头 → 审核官语义审查并反馈关联记忆 → 记忆引导下一轮生成方向 → 情绪和反驳冲动影响发言决策 → 记忆固化 → 自主决定表达（包括沉默时的内心闪过）。它不是现有任何项目的复制品，而是一个全新的组合实验。
 
 ---
 
@@ -147,21 +153,26 @@ I used hardware entropy from the OS (or quantum random numbers) to decide:
 Then raw "thoughts" are generated from random ASCII characters. It's always random — just like neural noise in our brains, the soil where ideas grow.
 
 ### 2. Semantic Reviewer — Meaning-Based Censorship
-The random strings are sent to a **Reviewer**. Unlike the old version that only did letter matching, the Reviewer now calls a large language model to judge semantic relevance on a 0–10 scale:
+The random strings are sent to a **Reviewer**. Unlike older versions that only did letter matching, the Reviewer now calls a large language model to judge semantic relevance on a 0–10 scale:
 
 - 0: Pure random gibberish, completely irrelevant
 - 1–3: Weak connection
 - 4–6: Moderate relevance (default passing threshold)
 - 7–10: Strong or perfect match
 
-If all thoughts score below 4 → the **Thinker** retries with a "hint" (the tail of the previous best sentence) to guide the next generation. If multiple retries still fail, the highest-scoring one is chosen.
+The Reviewer also selects the **most relevant memory concept** from the memory bank and feeds it back to the Thinker, guiding the direction of the next thought generation. Memory insertion is no longer "random copy-paste" — it's steered by the Reviewer toward meaningful directions.
+
+If all thoughts score below 4 → the Thinker retries. If multiple retries still fail, the highest-scoring one is chosen.
 
 ### 3. Emotion Model — Simulating Internal States
 A three-dimensional emotion system:
 - **Energy**: When tired, prefers silence; rest restores it
 - **Curiosity**: When curious, asks more questions and interrupts more often
 - **Pleasure**: When happy, more forgiving; when unhappy, pickier
-Emotions decay over time and are affected by events. They influence both the Reviewer's tolerance and the impulse to speak — high curiosity makes speech more likely, low energy tilts toward silence. Saved on shutdown and loaded on startup.
+
+Emotions decay over time and are affected by events. Curiosity no longer relies solely on a hardcoded counter — when the Reviewer gives a low score (meaning "I don't understand this at all"), curiosity grows naturally. Emotions influence both the Reviewer's tolerance and the impulse to speak.
+
+**Rebuttal Impulse**: When the kernel's thoughts are repeatedly rejected by the Reviewer, the system accumulates a "rebuttal impulse," temporarily increasing the probability of speaking. This avoids the one-way drift toward silence, making the Entropy Sprite more expressive when suppressed.
 
 ### 4. Vision Perception — Input from the Environment
 Multimodal models like GPT or GLM act as its "eyes," describing scenes in under 15 words for the Reviewer to use as context.
@@ -175,13 +186,13 @@ Three-layer memory inspired by the hippocampus and cortex:
 
 **Persistent Memory**: All memories stored in SQLite on disk, surviving shutdowns.
 
-**Memory-Influenced Kernel**: The Thinker occasionally pulls whole word fragments (2–6 characters) from memory into its thoughts.
+**Reviewer-Guided Memory Insertion**: The Reviewer's feedback on "most relevant memory concept" guides the Thinker's next generation. Memory is no longer a passive warehouse — through the Reviewer's relay, it genuinely participates in shaping the direction of thought generation.
 
 ### 6. Local Fallback — Speaking When Offline
 The LLM (GLM-4.7-Flash) is the "main voice channel." If the API is unavailable, built-in fallback responses adjust based on current mood.
 
 ### 7. Silent Inner Murmur
-When the kernel decides not to speak, it still generates a brief thought for Reviewer judgment. If semantically meaningful, it's appended (e.g., "inner murmur: meow"). If meaningless, a quiet "(…)" remains. Rejected murmurs don't affect the speaking threshold.
+When the kernel decides not to speak, it still generates a brief thought for Reviewer judgment. If semantically meaningful, it's appended (e.g., "inner murmur: meow"). If meaningless, a quiet "(…)" remains. Meaningless thoughts don't affect the speaking threshold but do accumulate rebuttal impulse.
 
 ---
 
@@ -192,10 +203,10 @@ When the kernel decides not to speak, it still generates a brief thought for Rev
 | `memory.py` | Three-layer memory system (SQLite persistence, auto-upgrade) |
 | `emotion.py` | Emotion model (energy/curiosity/pleasure, time decay, state saving) |
 | `vision.py` | Vision model (simulated text / real image multimodal) |
-| `thinker.py` | Thinker, whole-word insertion and retry hint guidance |
-| `reviewer.py` | Semantic reviewer, uses LLM for 0–10 meaning judgment |
+| `thinker.py` | Thinker, whole-word insertion and Reviewer-feedback-guided generation |
+| `reviewer.py` | Semantic reviewer, uses LLM for 0–10 meaning judgment, returns most relevant memory concept |
 | `language_model.py` | LLM shell + local fallback + curiosity questions |
-| `main.py` | Main system, integrates all modules |
+| `main.py` | Main system, integrates rebuttal impulse, natural curiosity growth, emotion-driven speak impulse |
 
 ---
 
@@ -212,16 +223,19 @@ When the kernel decides not to speak, it still generates a brief thought for Rev
 
 ## 🔄 Self-Optimization Mechanisms
 1. **Emotion-driven speak impulse**: Curiosity increases speech likelihood, fatigue reduces it
-2. **Semantic reviewer**: LLM judges meaning on a 0–10 scale, not just letter matching
-3. **Retry hint guidance**: Failed reviews pass the best sentence tail as a hint
-4. **Dynamic speak threshold**: Speaks more when saying good things; rejected murmurs don't affect it
-5. **Whole-word memory insertion**: Kernel output occasionally contains complete words from memory
-6. **Feature self-updating**: Understanding of concepts refines with each observation
-7. **Curiosity-driven questioning**: Actively asks about repeatedly unfamiliar things
-8. **Emotion evolution**: Energy, curiosity, and pleasure change over time
-9. **State persistence**: Memories and emotions survive shutdowns
-10. **Local fallback**: Outputs even when API is unavailable
-11. **Silent inner murmur**: Kernel thoughts persist even when silent, appear if meaningful
+2. **Rebuttal impulse**: Repeated rejection triggers a stronger urge to speak, avoiding "yes-man" behavior
+3. **Natural curiosity growth**: Low Reviewer scores automatically increase curiosity, not just hardcoded counters
+4. **Semantic reviewer**: LLM judges meaning on a 0–10 scale and returns the most relevant memory concept
+5. **Reviewer-guided memory insertion**: Memory fragments are no longer random copy-paste but steered toward scene-relevant directions
+6. **Retry hint guidance**: Failed reviews pass the Reviewer's associated memory concept as a hint to the Thinker
+7. **Dynamic speak threshold**: Speaks more when saying good things, goes silent when saying nonsense
+8. **Whole-word memory insertion**: Kernel output occasionally contains complete words from memory
+9. **Feature self-updating**: Understanding of concepts refines with each observation
+10. **Curiosity-driven questioning**: Actively asks about repeatedly unfamiliar things
+11. **Emotion evolution**: Energy, curiosity, and pleasure change over time
+12. **State persistence**: Memories and emotions survive shutdowns
+13. **Local fallback**: Outputs even when API is unavailable
+14. **Silent inner murmur**: Kernel thoughts persist even when silent, appear if meaningful
 
 ---
 
@@ -232,7 +246,7 @@ The code might be rough (I'm only in 6th grade and don't have money for premium 
 ---
 
 ## 🔬 How This Differs From Existing Projects
-Entropy Sprite is **the first to organically combine** true random thought generation, memory-influenced content, emotion-driven speak impulse, semantic LLM review, retry hint guidance, memory consolidation, and autonomous expression (including silent inner murmurs) into a single closed-loop consciousness simulation system.
+Entropy Sprite is **the first to organically combine** true random thought generation, semantic LLM review with memory concept feedback, memory-guided generation direction, emotion and rebuttal impulse affecting speech decisions, memory consolidation, and autonomous expression (including silent inner murmurs) into a single closed-loop consciousness simulation system.
 
 ---
 

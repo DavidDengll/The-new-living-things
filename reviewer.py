@@ -5,7 +5,6 @@ from config import ZHIPU_API_KEY, ZHIPU_MODEL_NAME
 class Reviewer:
     """
     语义审查官：调用大模型判断念头是否与场景相关。
-    替代旧版的字母匹配、bigram权重、记忆子串匹配。
     """
 
     def __init__(self, visual_summary, memory_system=None):
@@ -19,23 +18,37 @@ class Reviewer:
     def judge(self, raw_sentence):
         """
         判断一个念头是否和当前场景有语义关联。
-        返回 (分数 0~10, 解释)
+        返回 (分数 0~10, 解释, 最相关记忆概念)
         """
         print(f"⚖️ 审查官正在判断: '{raw_sentence}'")
 
-        system_prompt = """你是一个严格但公正的语义审查官。
+        # ✅ 获取记忆库中所有概念名，供审核官选择最相关的
+        memory_hint = ""
+        if self.memory_system:
+            cursor = self.memory_system.conn.cursor()
+            cursor.execute("SELECT name, feature FROM memories WHERE level IN ('permanent','long') ORDER BY RANDOM() LIMIT 5")
+            rows = cursor.fetchall()
+            if rows:
+                memory_hint = "已知的概念：\n" + "\n".join([f"- {r[0]}：{r[1]}" for r in rows])
+
+        system_prompt = f"""你是一个严格但公正的语义审查官。
 你的任务是判断一个"内心念头"（可能包含随机字母、词语碎片或记忆片段）是否和当前看到的场景有语义关联。
 请给出0~10的整数分数，以及一句话解释。
 
 评分标准：
 - 0分：完全无关，纯随机乱码（如"KJDM"、"ABX"）
-- 1~3分：有微弱关联（比如包含场景中某个字的拼音首字母，或碰巧撞上了一个字）
-- 4~6分：有一定关联（包含与场景相关的词汇、概念或情感）
-- 7~9分：明确相关（直接说出了场景中的物体、动作、颜色或感受）
-- 10分：完美契合（精准而生动地描述了场景的某个核心元素）
+- 1~3分：有微弱关联
+- 4~6分：有一定关联
+- 7~9分：明确相关
+- 10分：完美契合
 
-请严格按以下格式回复（不要多说任何额外内容）：
-分数|解释"""
+另外，请从以下已知概念中，选一个**与当前场景最相关的概念名**（只写概念名，不要解释）。
+{memory_hint}
+
+请严格按以下格式回复（三行，不要多说）：
+分数
+解释
+最相关概念"""
 
         user_prompt = f"当前场景：{self.visual_summary}\n内心念头：{raw_sentence}"
 
@@ -47,34 +60,36 @@ class Reviewer:
                     {"role": "user", "content": user_prompt}
                 ],
                 temperature=0.1,
-                max_tokens=80
+                max_tokens=100
             )
             result = response.choices[0].message.content.strip()
-
-            if "|" in result:
-                parts = result.split("|", 1)
-                score = float(parts[0].strip())
-                explanation = parts[1].strip()
+            lines = result.split("\n")
+            if len(lines) >= 3:
+                score = float(lines[0].strip())
+                explanation = lines[1].strip()
+                related_concept = lines[2].strip()
+            elif len(lines) >= 2:
+                score = float(lines[0].strip())
+                explanation = lines[1].strip()
+                related_concept = ""
             else:
                 import re
                 numbers = re.findall(r'\d+', result)
                 score = float(numbers[0]) if numbers else 0
                 explanation = result
+                related_concept = ""
 
             score = max(0, min(10, score))
-            print(f"✅ 审查结果: {score}/10 - {explanation}")
-            return score, explanation
+            print(f"✅ 审查结果: {score}/10 - {explanation} | 关联概念: {related_concept}")
+            return score, explanation, related_concept
 
         except Exception as e:
             print(f"❌ 审查失败: {e}，回退到默认分数0")
-            return 0, "审查失败，默认驳回"
+            return 0, "审查失败，默认驳回", ""
 
     def judge_batch(self, raw_sentences):
-        """
-        批量判断多个念头，返回 [(句子, 分数, 解释), ...]
-        """
         results = []
         for sentence in raw_sentences:
-            score, explanation = self.judge(sentence)
-            results.append((sentence, score, explanation))
+            score, explanation, concept = self.judge(sentence)
+            results.append((sentence, score, explanation, concept))
         return results

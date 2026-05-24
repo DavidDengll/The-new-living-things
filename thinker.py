@@ -20,9 +20,9 @@ class Thinker:
 
         raw_sentences = []
         for length in sentence_lengths:
-            # 如果有 hint（上次最佳句子的尾部），优先使用它作为生成基础
-            if hint and true_random_bool(0.7):  # 70% 概率直接使用 hint 片段
-                # 取 hint 的前 length 个字符（如果不足则补随机字符）
+            # ✅ 如果有 hint（来自审核官的“最相关记忆概念”），优先用它
+            if hint and true_random_bool(0.7):
+                # 从 hint 中截取适当长度
                 if len(hint) >= length:
                     raw_sentences.append(hint[:length])
                 else:
@@ -30,7 +30,7 @@ class Thinker:
                     raw_sentences.append(padded)
                 continue
 
-            # 原有的整词插入或逐字符生成逻辑
+            # ✅ 从记忆库中搜索与 keyword 相关的特征片段，而不是纯随机
             if true_random_bool(self.word_insert_prob):
                 fragment = self.memory.get_random_fragment(min_len=2, max_len=6)
                 if fragment and len(fragment) >= 2:

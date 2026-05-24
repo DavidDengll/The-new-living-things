@@ -36,6 +36,9 @@ class ConsciousnessSystem:
         self.curiosity_threshold = curiosity_threshold
         self.last_unknown_keyword = None
 
+        # ✅ 新增：连续被否计数器，触发反驳冲动
+        self.rejection_streak = 0
+
     def _seed_initial_memories(self):
         import sqlite3
         conn = sqlite3.connect("entropy_memory.db")
@@ -63,11 +66,16 @@ class ConsciousnessSystem:
                 self.current_threshold = self.base_threshold
             print(f"📈 动态阈值: {self.current_threshold:.2f}")
 
-    def should_speak(self, mood):
+    def should_speak(self, mood, rejection_bonus=0.0):
+        """
+        结合情绪和反驳冲动决定是否发言。
+        rejection_bonus：连续被否时临时提高发言概率（反驳冲动）。
+        """
         curiosity = mood.get("curiosity", 0.5)
         energy = mood.get("energy", 0.5)
-        adjusted = self.current_threshold - (curiosity - 0.5) * 0.4 + (0.5 - energy) * 0.3
-        adjusted = max(0.1, min(0.95, adjusted))
+        # 反驳冲动：连续被否越多，越想说（降低阈值）
+        adjusted = self.current_threshold - (curiosity - 0.5) * 0.4 + (0.5 - energy) * 0.3 - rejection_bonus
+        adjusted = max(0.05, min(0.95, adjusted))
         raw = true_random_byte()
         return (raw / 255.0) > adjusted
 
@@ -93,44 +101,57 @@ class ConsciousnessSystem:
             self.unknown_streak = 0
             self.emotion.update("learn_new")
 
-        if not self.should_speak(mood):
+        # ✅ 计算反驳冲动（连续被否的次数越多，越想反驳）
+        rejection_bonus = min(0.3, self.rejection_streak * 0.1)
+
+        if not self.should_speak(mood, rejection_bonus):
             print("🤫 沉默")
             self.emotion.update("silence")
 
             inner_murmur = self.thinker.generate_raw_thought(length=random.randint(3, 7))
             reviewer = Reviewer(scene, memory_system=self.memory)
-            murmur_score, murmur_reason = reviewer.judge(inner_murmur)
+            murmur_score, murmur_reason, _ = reviewer.judge(inner_murmur)
 
             if murmur_score >= self.min_meaning_score:
                 final_output = f"{outer_response}（内心一闪：{inner_murmur}）"
                 final_inner_score = murmur_score
                 print(f"💭 内心闪过有意义: {inner_murmur} (得分 {murmur_score}/10)")
                 self._update_threshold(final_inner_score)
+                self.rejection_streak = 0  # 被接受了，重置反驳冲动
             else:
                 final_output = f"{outer_response}（…）"
                 final_inner_score = 0
-                print(f"💭 内心闪过无意义: {inner_murmur} ({murmur_reason})")
+                self.rejection_streak += 1  # ✅ 被否了，累积反驳冲动
+                # ✅ 好奇心从审核官的低分中自然增长（分数越低，好奇心增得越多）
+                curiosity_boost = (10 - murmur_score) / 20  # 0分→+0.5, 3分→+0.35, 高分不变
+                self.emotion.curiosity = min(1.0, self.emotion.curiosity + curiosity_boost)
+                print(f"💭 内心闪过无意义: {inner_murmur} ({murmur_reason}) | 反驳冲动+1 | 好奇+{curiosity_boost:.2f}")
         else:
             print("🗣️ 发言")
             self.emotion.update("speak")
             reviewer = Reviewer(scene, memory_system=self.memory)
             best_sentence = None
             best_score = -1
+            best_concept = ""
             hint = None
 
             for attempt in range(1, self.max_retries + 1):
                 current_result = self.thinker.think(keyword, scene, hint=hint)
                 scored = []
                 for s in current_result['raw_sentences']:
-                    semantic_score, _ = reviewer.judge(s)
-                    scored.append((s, semantic_score))
-                current_best, current_score = max(scored, key=lambda x: x[1])
+                    semantic_score, _, related_concept = reviewer.judge(s)
+                    scored.append((s, semantic_score, related_concept))
+                current_best, current_score, current_concept = max(scored, key=lambda x: x[1])
                 print(f"  🔄 {attempt}: {current_result['raw_sentences']} 最高分 {current_score}")
 
                 if current_score > best_score:
                     best_score = current_score
                     best_sentence = current_best
-                    if len(best_sentence) >= 2:
+                    best_concept = current_concept
+                    # ✅ 用审核官返回的“最相关记忆概念”作为下一轮 hint
+                    if best_concept:
+                        hint = best_concept
+                    elif len(best_sentence) >= 2:
                         hint = best_sentence[-2:]
                     else:
                         hint = best_sentence
@@ -149,6 +170,7 @@ class ConsciousnessSystem:
             final_inner_score = best_score
             print(f"💬 插入: {best_sentence}")
             self._update_threshold(final_inner_score)
+            self.rejection_streak = 0  # 成功说出话，重置反驳冲动
 
         if self.unknown_streak >= self.curiosity_threshold:
             question = self.language_model.generate_question(self.last_unknown_keyword)
@@ -157,7 +179,7 @@ class ConsciousnessSystem:
             self.emotion.update("question_asked")
 
         print(f"✅ 最终回复: {final_output}")
-        print(f"📊 情绪状态: {mood}")
+        print(f"📊 情绪状态: {mood} | 反驳冲动: {self.rejection_streak}")
         print("-" * 50)
 
     def close(self):
