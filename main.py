@@ -42,7 +42,6 @@ class ConsciousnessSystem:
         """
         只在记忆库为空时植入先天永久记忆。
         使用 name=概念名, feature=特征描述 的统一格式。
-        与 memory.search(name) 和 reviewer.judge 返回的 related_concept 保持一致。
         """
         import sqlite3
         conn = sqlite3.connect("entropy_memory.db")
@@ -88,7 +87,7 @@ class ConsciousnessSystem:
 
         outer_response = self.language_model.generate_response(scene, mood)
 
-        # ✅ 初始 think 不传 hint（第一轮没有审核官反馈）
+        # 初始 think 不传 hint
         result = self.thinker.think(keyword, scene, hint=None)
         print(f"🧠 记忆查询: {result['memory_info']}")
 
@@ -109,7 +108,7 @@ class ConsciousnessSystem:
 
             inner_murmur = self.thinker.generate_raw_thought(length=random.randint(3, 7))
             reviewer = Reviewer(scene, memory_system=self.memory)
-            murmur_score, murmur_reason, _ = reviewer.judge(inner_murmur)
+            murmur_score, murmur_reason, _ = reviewer.judge(inner_murmur, rejection_streak=self.rejection_streak)
 
             if murmur_score >= self.min_meaning_score:
                 final_output = f"{outer_response}（内心一闪：{inner_murmur}）"
@@ -134,23 +133,37 @@ class ConsciousnessSystem:
             hint = None
 
             for attempt in range(1, self.max_retries + 1):
-                # ✅ 用审核官返回的 related_concept 作为 hint 传给下一轮 think
                 current_result = self.thinker.think(keyword, scene, hint=hint)
-                scored = []
-                for s in current_result['raw_sentences']:
-                    semantic_score, _, related_concept = reviewer.judge(s)
-                    scored.append((s, semantic_score, related_concept))
-                current_best, current_score, current_concept = max(scored, key=lambda x: x[1])
+
+                # 批量审查所有念头，一次 API 调用
+                judge_results = reviewer.judge_batch(
+                    current_result['raw_sentences'],
+                    rejection_streak=self.rejection_streak
+                )
+
+                best_in_batch = None
+                best_in_batch_score = -1
+                best_in_batch_concept = ""
+                for s, score, explanation, concept in judge_results:
+                    if score > best_in_batch_score:
+                        best_in_batch_score = score
+                        best_in_batch = s
+                        best_in_batch_concept = concept
+
+                current_best = best_in_batch
+                current_score = best_in_batch_score
+                current_concept = best_in_batch_concept
+
                 print(f"  🔄 {attempt}: {current_result['raw_sentences']} 最高分 {current_score}")
 
                 if current_score > best_score:
                     best_score = current_score
                     best_sentence = current_best
                     best_concept = current_concept
-                    # ✅ 优先用审核官返回的最相关记忆概念，其次用最佳句子尾部
+                    # 优先用审核官返回的最相关记忆概念，其次用最佳句子尾部
                     if best_concept and best_concept.strip():
                         hint = best_concept.strip()
-                    elif len(best_sentence) >= 2:
+                    elif best_sentence and len(best_sentence) >= 2:
                         hint = best_sentence[-2:]
                     else:
                         hint = best_sentence
