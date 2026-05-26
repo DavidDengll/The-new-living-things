@@ -259,3 +259,91 @@ Entropy Sprite is **the first to organically combine** true random thought gener
 
 ## 📄 License
 MIT License
+
+## 📖 使用指南
+
+### 1. 安装
+```bash
+git clone https://github.com/DavidDengll/The-new-living-things.git
+cd The-new-living-things
+pip install zhipuai
+2. 获取并配置 API Key
+在 智谱AI开放平台 注册并实名认证
+
+创建 API Key
+
+打开 config.py，填入：ZHIPU_API_KEY = "sk-你的key"
+
+3. 运行
+bash
+python main.py
+4. 调参
+视觉模式
+修改 main.py 底部的初始化参数：
+
+模拟模式：vision_mode="simulate"，修改 scene_description 切换场景
+
+真实图片：vision_mode="real"，修改 image_path="图片文件名.jpg"
+
+性格参数
+参数	默认值	说明
+speak_threshold	0.6	发言冲动（0.2=话痨，0.9=沉默）
+min_meaning_score	4	念头通过线（0~10）
+max_retries	5	想不出好话时的重试次数
+记忆升级条件
+在 memory.py 的 _try_upgrade 方法里修改数字：
+
+python
+if mem["level"] == "short" and mem["mentioned_count"] >= 5:   # 改这里的 5
+    mem["level"] = "long"
+elif mem["level"] == "long" and mem["mentioned_count"] >= 7:  # 改这里的 7
+    mem["level"] = "permanent"
+5. 常见问题
+问题	解决方法
+No module named 'zhipuai'	执行 pip install zhipuai
+API Key 无效	检查 config.py 中的 Key 是否正确
+数据库报错	删除 entropy_memory.db 后重新运行
+真实图片模式失败	确认图片路径正确且有智谱多模态额度
+📖 Quick Start
+1. Installation
+bash
+git clone https://github.com/DavidDengll/The-new-living-things.git
+cd The-new-living-things
+pip install zhipuai
+2. API Key
+Register on ZhipuAI Open Platform and complete real-name verification
+
+Create an API Key
+
+Open config.py and fill: ZHIPU_API_KEY = "sk-your-key"
+
+3. Run
+bash
+python main.py
+4. Customization
+Vision Mode
+Modify the initialization at the bottom of main.py:
+
+Simulated: vision_mode="simulate", change scene_description
+
+Real image: vision_mode="real", set image_path="your_image.jpg"
+
+Personality Parameters
+Parameter	Default	Description
+speak_threshold	0.6	Speech impulse (0.2=chatty, 0.9=silent)
+min_meaning_score	4	Thought pass threshold (0~10)
+max_retries	5	Retry attempts when no good thought
+Memory Upgrade Thresholds
+In memory.py, modify numbers in the _try_upgrade method:
+
+python
+if mem["level"] == "short" and mem["mentioned_count"] >= 5:   # modify the 5
+    mem["level"] = "long"
+elif mem["level"] == "long" and mem["mentioned_count"] >= 7:  # modify the 7
+    mem["level"] = "permanent"
+5. Troubleshooting
+Issue	Solution
+No module named 'zhipuai'	Run pip install zhipuai
+Invalid API Key	Check key in config.py
+Database error	Delete entropy_memory.db and rerun
+Real image mode failure	Verify image path and multimodal quota
