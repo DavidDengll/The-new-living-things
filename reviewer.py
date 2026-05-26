@@ -1,6 +1,6 @@
 # reviewer.py
 from zhipuai import ZhipuAI
-from config import ZHIPU_API_KEY, ZHIPU_MODEL_NAME
+from config import ZHIPU_API_KEY, ZHIPU_MODEL_NAME, REJECTION_LENIENT_THRESHOLD
 
 class Reviewer:
     """
@@ -16,15 +16,9 @@ class Reviewer:
         self.model_name = ZHIPU_MODEL_NAME
 
     def judge_batch(self, raw_sentences, rejection_streak=0):
-        """
-        批量判断多个念头。
-        返回 [(句子, 分数, 解释, 最相关概念), ...]
-        rejection_streak: 连续被否次数，影响审核官的宽容度。
-        """
         if not raw_sentences:
             return []
 
-        # 获取记忆库中的概念供审核官参考
         memory_context = ""
         if self.memory_system:
             cursor = self.memory_system.conn.cursor()
@@ -33,12 +27,10 @@ class Reviewer:
             if rows:
                 memory_context = "已知的概念：\n" + "\n".join([f"- {r[0]}：{r[1]}" for r in rows])
 
-        # 构建念头列表
         sentences_text = "\n".join([f"{i+1}. {s}" for i, s in enumerate(raw_sentences)])
 
-        # 反驳冲动提示
         rejection_hint = ""
-        if rejection_streak >= 3:
+        if rejection_streak >= REJECTION_LENIENT_THRESHOLD:
             rejection_hint = f"注意：发言者已连续被否定 {rejection_streak} 次，可能带有反驳或证明自己的情绪。请对边缘分数稍微宽容（+1分范围内）。"
         elif rejection_streak >= 1:
             rejection_hint = f"注意：发言者已连续被否定 {rejection_streak} 次。"
@@ -93,7 +85,6 @@ class Reviewer:
             return [(s, 0, "审查失败", "") for s in raw_sentences]
 
     def _parse_batch_result(self, result_text, raw_sentences):
-        """解析批量审查结果"""
         blocks = result_text.split("---")
         results = []
         for i, sentence in enumerate(raw_sentences):
@@ -101,7 +92,6 @@ class Reviewer:
                 block = blocks[i].strip()
                 lines = block.split("\n")
                 if len(lines) >= 3:
-                    # 第一行：念头序号|分数
                     score_line = lines[0].strip()
                     if "|" in score_line:
                         score = float(score_line.split("|")[1].strip())
@@ -132,7 +122,6 @@ class Reviewer:
         return results
 
     def judge(self, raw_sentence, rejection_streak=0):
-        """单个念头的判断（内部调用 judge_batch）"""
         results = self.judge_batch([raw_sentence], rejection_streak)
         if results:
             _, score, explanation, concept = results[0]

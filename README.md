@@ -259,3 +259,45 @@ Entropy Sprite is **the first to organically combine** true random thought gener
 
 ## 📄 License
 MIT License
+
+### 1. 安装
+```bash
+git clone https://github.com/DavidDengll/The-new-living-things.git
+cd The-new-living-things
+pip install zhipuai
+2. 获取 API Key
+访问 智谱AI开放平台 注册并完成实名认证。
+
+在控制台创建 API Key。
+
+打开 config.py，填入 Key：
+
+python
+ZHIPU_API_KEY = "sk-你的key"
+3. 运行
+bash
+python main.py
+4. 自定义配置
+所有可调参数集中在 config.py，无需修改其他源代码：
+
+参数	默认值	说明
+SPEAK_THRESHOLD	0.6	发言冲动（0.2=话痨，0.9=沉默）
+MIN_MEANING_SCORE	4	念头通过线（0~10）
+MAX_RETRIES	5	重试次数
+SHORT_TO_LONG_COUNT	5	短期→长期所需提及次数
+LONG_TO_PERMANENT_COUNT	7	长期→永久所需提及次数
+视觉模式切换（修改 config.py）：
+
+模拟模式（默认）：VISION_MODE = "simulate"，修改 SCENE_DESCRIPTION 换场景
+
+真实图片：VISION_MODE = "real"，设置 IMAGE_PATH = "photo.jpg"（需要多模态额度）
+
+5. 故障排查
+现象	可能原因	解决方法
+No module named 'zhipuai'	                    未安装依赖	 执行 pip install zhipuai
+提示 API Key 无效	                             Key 未填写或格式错误	检查 config.py 中 Key 是否以 sk- 开头
+长时间无响应或超时	网络无法访问智谱 API	       检查网络连接，尝试 ping api.zhipuai.cn
+数据库报错	文件损坏或被占用	                  关闭其他使用该数据库的程序；如仍不行，备份后删除 entropy_memory.db 重新运行
+真实图片模式无输出	图片路径错误或没有多模态额度	确认图片在项目目录下，且智谱账户有 glm-4v 的可用额度
+
+## 各位也可以自己调节一下你想要改的东西

@@ -2,50 +2,51 @@
 import datetime
 import json
 import os
+from config import (
+    EMOTION_DECAY_RATE,
+    EMOTION_SPEAK_ENERGY_COST,
+    EMOTION_SILENCE_ENERGY_GAIN,
+    EMOTION_LEARN_CURIOSITY_GAIN,
+    EMOTION_LEARN_PLEASURE_GAIN,
+    EMOTION_UNKNOWN_CURIOSITY_GAIN,
+    EMOTION_QUESTION_CURIOSITY_COST
+)
 
 EMOTION_STATE_FILE = "emotion_state.json"
 
 class Emotion:
     def __init__(self):
-        # 精力：0 (疲惫) - 1 (精力充沛)
         self.energy = 0.7
-        # 好奇心：0 (漠不关心) - 1 (极度好奇)
         self.curiosity = 0.5
-        # 愉悦：0 (沮丧) - 1 (非常开心)
         self.pleasure = 0.5
-
         self.last_update = datetime.datetime.now().isoformat()
         self.load_state()
 
     def update(self, event_type=None):
-        """随时间自然衰减，并根据事件调整"""
         now = datetime.datetime.now()
         last = datetime.datetime.fromisoformat(self.last_update)
         elapsed_hours = (now - last).total_seconds() / 3600.0
 
-        # 自然衰减：每小时衰减 5%
-        decay = 0.05 * elapsed_hours
+        decay = EMOTION_DECAY_RATE * elapsed_hours
         self.energy = max(0.0, self.energy - decay)
         self.curiosity = max(0.1, self.curiosity - decay * 0.5)
         self.pleasure = max(0.1, self.pleasure - decay * 0.3)
 
-        # 事件调节
         if event_type == "speak":
-            self.energy -= 0.03   # 说话消耗精力
+            self.energy -= EMOTION_SPEAK_ENERGY_COST
             self.curiosity = min(1.0, self.curiosity + 0.02)
         elif event_type == "silence":
-            self.energy = min(1.0, self.energy + 0.05)  # 休息恢复
+            self.energy = min(1.0, self.energy + EMOTION_SILENCE_ENERGY_GAIN)
         elif event_type == "learn_new":
-            self.curiosity = min(1.0, self.curiosity + 0.1)
-            self.pleasure = min(1.0, self.pleasure + 0.05)
+            self.curiosity = min(1.0, self.curiosity + EMOTION_LEARN_CURIOSITY_GAIN)
+            self.pleasure = min(1.0, self.pleasure + EMOTION_LEARN_PLEASURE_GAIN)
         elif event_type == "unknown_streak":
-            self.curiosity = min(1.0, self.curiosity + 0.15)
+            self.curiosity = min(1.0, self.curiosity + EMOTION_UNKNOWN_CURIOSITY_GAIN)
             self.energy -= 0.02
         elif event_type == "question_asked":
-            self.curiosity -= 0.2  # 提问后好奇心暂时满足
+            self.curiosity -= EMOTION_QUESTION_CURIOSITY_COST
             self.pleasure = min(1.0, self.pleasure + 0.05)
 
-        # 约束在 0~1
         self.energy = max(0.0, min(1.0, self.energy))
         self.curiosity = max(0.0, min(1.0, self.curiosity))
         self.pleasure = max(0.0, min(1.0, self.pleasure))

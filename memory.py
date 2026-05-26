@@ -2,6 +2,7 @@
 import sqlite3
 import datetime
 import random
+from config import SHORT_TO_LONG_COUNT, LONG_TO_PERMANENT_COUNT
 
 DB_PATH = "entropy_memory.db"
 
@@ -79,11 +80,11 @@ class MemorySystem:
         return None
 
     def _try_upgrade(self, mem):
-        if mem["level"] == "short" and mem["mentioned_count"] >= 5:
+        if mem["level"] == "short" and mem["mentioned_count"] >= SHORT_TO_LONG_COUNT:
             mem["level"] = "long"
             mem["mentioned_count"] = 0
             print(f"⬆️ 升级：短期 → 长期: {mem['name']}")
-        elif mem["level"] == "long" and mem["mentioned_count"] >= 7:
+        elif mem["level"] == "long" and mem["mentioned_count"] >= LONG_TO_PERMANENT_COUNT:
             mem["level"] = "permanent"
             mem["mentioned_count"] = 0
             print(f"⬆️ 升级：长期 → 永久: {mem['name']}")

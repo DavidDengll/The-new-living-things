@@ -6,43 +6,46 @@ from reviewer import Reviewer
 from language_model import LanguageModel
 from emotion import Emotion
 from randomness import true_random_byte
+from config import (
+    SPEAK_THRESHOLD, MIN_MEANING_SCORE, MAX_RETRIES, CURIOSITY_THRESHOLD,
+    VISION_MODE, SCENE_DESCRIPTION, IMAGE_PATH,
+    REJECTION_BONUS_MAX, REJECTION_BONUS_PER_STREAK
+)
 import datetime
 import random
 
 class ConsciousnessSystem:
-    def __init__(self, vision_mode="simulate", scene_description=None, image_path=None,
-                 speak_threshold=0.6, min_meaning_score=4, max_retries=5,
-                 curiosity_threshold=3):
+    def __init__(self, vision_mode=None, scene_description=None, image_path=None,
+                 speak_threshold=None, min_meaning_score=None, max_retries=None,
+                 curiosity_threshold=None):
         print(f"⚙️ 初始化视觉感知器...")
-        self.visual = VisualModel(mode=vision_mode,
-                                  description=scene_description,
-                                  image_path=image_path)
+        self.visual = VisualModel(
+            mode=vision_mode if vision_mode is not None else VISION_MODE,
+            description=scene_description if scene_description is not None else SCENE_DESCRIPTION,
+            image_path=image_path if image_path is not None else IMAGE_PATH
+        )
         self.memory = MemorySystem()
         self._seed_initial_memories()
 
-        self.thinker = Thinker(self.memory, memory_influence_prob=0.4)
+        self.thinker = Thinker(self.memory)
         self.language_model = LanguageModel()
         self.emotion = Emotion()
 
-        self.base_threshold = speak_threshold
-        self.current_threshold = speak_threshold
+        self.base_threshold = speak_threshold if speak_threshold is not None else SPEAK_THRESHOLD
+        self.current_threshold = self.base_threshold
         self.score_history = []
         self.history_size = 5
 
-        self.min_meaning_score = min_meaning_score
-        self.max_retries = max_retries
+        self.min_meaning_score = min_meaning_score if min_meaning_score is not None else MIN_MEANING_SCORE
+        self.max_retries = max_retries if max_retries is not None else MAX_RETRIES
 
         self.unknown_streak = 0
-        self.curiosity_threshold = curiosity_threshold
+        self.curiosity_threshold = curiosity_threshold if curiosity_threshold is not None else CURIOSITY_THRESHOLD
         self.last_unknown_keyword = None
 
         self.rejection_streak = 0
 
     def _seed_initial_memories(self):
-        """
-        只在记忆库为空时植入先天永久记忆。
-        使用 name=概念名, feature=特征描述 的统一格式。
-        """
         import sqlite3
         conn = sqlite3.connect("entropy_memory.db")
         cursor = conn.cursor()
@@ -87,7 +90,6 @@ class ConsciousnessSystem:
 
         outer_response = self.language_model.generate_response(scene, mood)
 
-        # 初始 think 不传 hint
         result = self.thinker.think(keyword, scene, hint=None)
         print(f"🧠 记忆查询: {result['memory_info']}")
 
@@ -100,7 +102,7 @@ class ConsciousnessSystem:
             self.unknown_streak = 0
             self.emotion.update("learn_new")
 
-        rejection_bonus = min(0.3, self.rejection_streak * 0.1)
+        rejection_bonus = min(REJECTION_BONUS_MAX, self.rejection_streak * REJECTION_BONUS_PER_STREAK)
 
         if not self.should_speak(mood, rejection_bonus):
             print("🤫 沉默")
@@ -135,7 +137,6 @@ class ConsciousnessSystem:
             for attempt in range(1, self.max_retries + 1):
                 current_result = self.thinker.think(keyword, scene, hint=hint)
 
-                # 批量审查所有念头，一次 API 调用
                 judge_results = reviewer.judge_batch(
                     current_result['raw_sentences'],
                     rejection_streak=self.rejection_streak
@@ -160,7 +161,6 @@ class ConsciousnessSystem:
                     best_score = current_score
                     best_sentence = current_best
                     best_concept = current_concept
-                    # 优先用审核官返回的最相关记忆概念，其次用最佳句子尾部
                     if best_concept and best_concept.strip():
                         hint = best_concept.strip()
                     elif best_sentence and len(best_sentence) >= 2:
@@ -199,14 +199,7 @@ class ConsciousnessSystem:
         self.emotion.save_state()
 
 if __name__ == "__main__":
-    system = ConsciousnessSystem(
-        vision_mode="simulate",
-        scene_description="一只橘猫趴在窗台上，阳光照在它身上",
-        speak_threshold=0.6,
-        min_meaning_score=4,
-        max_retries=5,
-        curiosity_threshold=3
-    )
+    system = ConsciousnessSystem()
     print("=== 熵灵双层心智系统启动 ===\n")
     try:
         for i in range(12):
