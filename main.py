@@ -11,7 +11,6 @@ from config import (
     VISION_MODE, SCENE_DESCRIPTION, IMAGE_PATH,
     REJECTION_BONUS_MAX, REJECTION_BONUS_PER_STREAK
 )
-import datetime
 import random
 
 class ConsciousnessSystem:
@@ -57,8 +56,13 @@ class ConsciousnessSystem:
         conn.close()
 
     def _update_threshold(self, final_score):
-        if final_score <= 0:
+        if final_score == 0:
             return
+        if final_score < 0:
+            self.current_threshold = min(0.9, self.current_threshold + 0.05)
+            print(f"📈 动态阈值（惩罚）: {self.current_threshold:.2f}")
+            return
+
         self.score_history.append(final_score)
         if len(self.score_history) > self.history_size:
             self.score_history.pop(0)
@@ -113,15 +117,16 @@ class ConsciousnessSystem:
             murmur_score, murmur_reason, _ = reviewer.judge(inner_murmur, rejection_streak=self.rejection_streak)
 
             if murmur_score >= self.min_meaning_score:
-                final_output = f"{outer_response}（内心一闪：{inner_murmur}）"
+                final_output = f"（内心一闪：{inner_murmur}）"
                 final_inner_score = murmur_score
                 print(f"💭 内心闪过有意义: {inner_murmur} (得分 {murmur_score}/10)")
                 self._update_threshold(final_inner_score)
                 self.rejection_streak = 0
             else:
-                final_output = f"{outer_response}（…）"
-                final_inner_score = 0
+                final_output = "（…）"
+                final_inner_score = -1
                 self.rejection_streak += 1
+                self._update_threshold(final_inner_score)
                 curiosity_boost = (10 - murmur_score) / 20
                 self.emotion.curiosity = min(1.0, self.emotion.curiosity + curiosity_boost)
                 print(f"💭 内心闪过无意义: {inner_murmur} ({murmur_reason}) | 反驳冲动+1 | 好奇+{curiosity_boost:.2f}")

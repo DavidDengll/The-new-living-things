@@ -1,6 +1,7 @@
 # reviewer.py
 from zhipuai import ZhipuAI
 from config import ZHIPU_API_KEY, ZHIPU_MODEL_NAME, REJECTION_LENIENT_THRESHOLD
+import re
 
 class Reviewer:
     """
@@ -21,11 +22,20 @@ class Reviewer:
 
         memory_context = ""
         if self.memory_system:
-            cursor = self.memory_system.conn.cursor()
-            cursor.execute("SELECT name, feature FROM memories WHERE level IN ('permanent','long') ORDER BY RANDOM() LIMIT 8")
-            rows = cursor.fetchall()
-            if rows:
-                memory_context = "已知的概念：\n" + "\n".join([f"- {r[0]}：{r[1]}" for r in rows])
+            keywords = [w.strip() for w in self.visual_summary.replace("，", " ").replace("。", " ").split() if len(w.strip()) >= 1]
+            related_memories = []
+            for kw in keywords[:3]:
+                cursor = self.memory_system.conn.cursor()
+                cursor.execute(
+                    "SELECT name, feature FROM memories WHERE (name LIKE ? OR feature LIKE ?) AND level IN ('permanent','long') LIMIT 3",
+                    (f"%{kw}%", f"%{kw}%")
+                )
+                rows = cursor.fetchall()
+                for r in rows:
+                    if r not in related_memories:
+                        related_memories.append(r)
+            if related_memories:
+                memory_context = "相关的已知概念：\n" + "\n".join([f"- {r[0]}：{r[1]}" for r in related_memories[:8]])
 
         sentences_text = "\n".join([f"{i+1}. {s}" for i, s in enumerate(raw_sentences)])
 
@@ -41,7 +51,7 @@ class Reviewer:
 对每个念头，给出：
 1. 0~10的整数分数
 2. 一句话解释
-3. 从已知概念中选一个最相关的概念名（如果没有就写"无"）
+3. 从相关概念中选一个最相关的概念名（如果没有就写"无"）
 
 评分标准：
 - 0分：完全无关，纯随机乱码
@@ -54,7 +64,7 @@ class Reviewer:
 
 {memory_context}
 
-请严格按以下格式回复，每个念头三行，念头之间用---分隔：
+请严格按以下格式回复（每个念头三行，念头之间用---分隔）：
 念头序号|分数
 解释
 最相关概念
@@ -75,7 +85,7 @@ class Reviewer:
                     {"role": "user", "content": user_prompt}
                 ],
                 temperature=0.1,
-                max_tokens=300
+                max_tokens=500
             )
             result = response.choices[0].message.content.strip()
             return self._parse_batch_result(result, raw_sentences)
@@ -85,36 +95,53 @@ class Reviewer:
             return [(s, 0, "审查失败", "") for s in raw_sentences]
 
     def _parse_batch_result(self, result_text, raw_sentences):
-        blocks = result_text.split("---")
         results = []
+
+        blocks = result_text.split("---")
+        if len(blocks) < len(raw_sentences):
+            blocks = result_text.split("\n\n")
+
         for i, sentence in enumerate(raw_sentences):
+            score = 0
+            explanation = "解析失败"
+            related_concept = ""
+
             if i < len(blocks):
                 block = blocks[i].strip()
-                lines = block.split("\n")
-                if len(lines) >= 3:
-                    score_line = lines[0].strip()
-                    if "|" in score_line:
-                        score = float(score_line.split("|")[1].strip())
-                    else:
-                        import re
-                        nums = re.findall(r'\d+', score_line)
-                        score = float(nums[0]) if nums else 0
-                    explanation = lines[1].strip()
-                    related_concept = lines[2].strip()
-                    if related_concept == "无":
-                        related_concept = ""
-                elif len(lines) >= 2:
-                    score = float(lines[0].strip()) if lines[0].strip().isdigit() else 0
-                    explanation = lines[1].strip() if len(lines) > 1 else ""
+                lines = [l.strip() for l in block.split("\n") if l.strip()]
+
+                for line in lines:
+                    if "|" in line and any(c.isdigit() for c in line):
+                        parts = line.split("|")
+                        for part in parts:
+                            nums = re.findall(r'\d+', part)
+                            if nums:
+                                score = float(nums[0])
+                                break
+                    elif line.isdigit() and len(line) <= 2:
+                        score = float(line)
+                    elif "分" in line and any(c.isdigit() for c in line):
+                        nums = re.findall(r'\d+', line)
+                        if nums:
+                            score = float(nums[0])
+                    elif len(line) > 3 and not line.startswith("念头"):
+                        if explanation == "解析失败":
+                            explanation = line
+                    if line != lines[0] and line not in ["无", "解析失败"] and len(line) <= 10:
+                        if related_concept == "" and line != explanation:
+                            related_concept = line
+
+                if score == 0 and len(lines) > 0:
+                    nums = re.findall(r'\d+', lines[0])
+                    if nums:
+                        score = float(nums[0])
+                        if len(lines) > 1:
+                            explanation = lines[1]
+                        if len(lines) > 2:
+                            related_concept = lines[2]
+
+                if related_concept == "无":
                     related_concept = ""
-                else:
-                    score = 0
-                    explanation = "解析失败"
-                    related_concept = ""
-            else:
-                score = 0
-                explanation = "未返回结果"
-                related_concept = ""
 
             score = max(0, min(10, score))
             results.append((sentence, score, explanation, related_concept))

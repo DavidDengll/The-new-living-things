@@ -90,12 +90,15 @@ class MemorySystem:
             print(f"⬆️ 升级：长期 → 永久: {mem['name']}")
 
     def _update_feature(self, mem, new_desc):
-        old_words = mem["feature"].replace("，", " ").replace("。", " ").split()
-        new_words = new_desc.replace("，", " ").replace("。", " ").split()
-        all_words = old_words + new_words
+        old_words = [w.strip() for w in mem["feature"].replace("，", " ").replace("。", " ").replace("、", " ").split() if w.strip()]
+        new_words = [w.strip() for w in new_desc.replace("，", " ").replace("。", " ").replace("、", " ").split() if w.strip()]
+
         freq = {}
-        for w in all_words:
+        for w in old_words:
             freq[w] = freq.get(w, 0) + 1
+        for w in new_words:
+            freq[w] = freq.get(w, 0) + 1
+
         top_words = sorted(freq, key=freq.get, reverse=True)[:5]
         mem["feature"] = "、".join(top_words)
         print(f"🔄 特征更新: {mem['name']} → {mem['feature']}")
@@ -109,13 +112,20 @@ class MemorySystem:
             row = cursor.fetchone()
         if not row:
             return ""
-        feat = row[0]
-        if len(feat) <= min_len:
-            return feat
-        max_start = max(0, len(feat) - min_len)
+
+        feature_text = row[0]
+        words = [w.strip() for w in feature_text.replace("，", " ").replace("、", " ").split() if w.strip()]
+        if not words:
+            return ""
+
+        chosen_word = random.choice(words)
+        if len(chosen_word) <= min_len:
+            return chosen_word
+
+        max_start = max(0, len(chosen_word) - min_len)
         start = random.randint(0, max_start)
-        end = min(start + random.randint(min_len, max_len), len(feat))
-        return feat[start:end]
+        end = min(start + random.randint(min_len, max_len), len(chosen_word))
+        return chosen_word[start:end]
 
     def add_short(self, name, feature):
         cursor = self.conn.cursor()
