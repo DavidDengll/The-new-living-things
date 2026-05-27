@@ -4,7 +4,7 @@ import os
 # ============================================
 # API 配置
 # ============================================
-ZHIPU_API_KEY = os.environ.get("ZHIPU_API_KEY", "sk-6996b71a04f84c73a1d1c7741e22b2d7.c4MoGypYMEONUouA")
+ZHIPU_API_KEY = os.environ.get("ZHIPU_API_KEY", "sk-API Key")
 ZHIPU_MODEL_NAME = "glm-4.7-flash"
 
 # ============================================
