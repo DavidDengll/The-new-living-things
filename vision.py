@@ -20,6 +20,10 @@ class VisualModel:
             return self.description
         elif self.mode == "real":
             return self._real_see()
+        elif self.mode == "keyboard":
+            return self._keyboard_see()
+        else:
+            raise ValueError(f"未知视觉模式: {self.mode}")
 
     def _real_see(self):
         if not self.image_path or not os.path.exists(self.image_path):
@@ -43,6 +47,34 @@ class VisualModel:
             print(f"❌ 视觉识别失败: {e}")
             return self.description
 
+    def _keyboard_see(self):
+        """键盘输入场景描述"""
+        text = input("⌨️ 请输入场景描述：").strip()
+        if not text:
+            # 如果用户直接回车，使用默认描述
+            text = self.description
+            print(f"👁️ 使用默认场景: {text}")
+        return text
+
     def extract_keywords(self, description):
+        """
+        从描述中提取关键词。
+        跳过无意义的量词和虚词，取第一个有意义的名词。
+        """
+        # 常见无意义词（量词、虚词、代词等）
+        skip_words = {
+            "一只", "一个", "一条", "一张", "一片", "这个", "那个",
+            "的", "了", "在", "是", "有", "和", "与", "它", "他", "她",
+            "着", "被", "把", "从", "到", "上", "下", "中", "里", "外"
+        }
+
         words = description.replace("，", " ").replace("。", " ").split()
+
+        # 先尝试找第一个不在跳过列表里的词
+        for word in words:
+            clean_word = word.strip()
+            if clean_word not in skip_words and len(clean_word) >= 1:
+                return clean_word
+
+        # 如果所有词都在跳过列表里，返回第一个词
         return words[0] if words else "未知"

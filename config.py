@@ -4,7 +4,7 @@ import os
 # ============================================
 # API 配置
 # ============================================
-ZHIPU_API_KEY = os.environ.get("ZHIPU_API_KEY", "你的真实API-KEY")
+ZHIPU_API_KEY = os.environ.get("ZHIPU_API_KEY", "sk-6996b71a04f84c73a1d1c7741e22b2d7.c4MoGypYMEONUouA")
 ZHIPU_MODEL_NAME = "glm-4.7-flash"
 
 # ============================================
@@ -12,7 +12,7 @@ ZHIPU_MODEL_NAME = "glm-4.7-flash"
 # ============================================
 SPEAK_THRESHOLD = 0.6        # 发言冲动（0.2=话痨，0.9=沉默）
 MIN_MEANING_SCORE = 4        # 念头通过线（0~10，越高越严格）
-MAX_RETRIES = 5              # 想不出好话时的重试次数
+MAX_RETRIES = 3              # 想不出好话时的重试次数（降低以加快速度）
 CURIOSITY_THRESHOLD = 3      # 连续陌生几次后主动提问
 
 # ============================================
@@ -23,8 +23,11 @@ LONG_TO_PERMANENT_COUNT = 7  # 长期→永久所需的提及次数
 
 # ============================================
 # 视觉模式
+# "simulate" = 固定场景描述
+# "real"     = 真实图片（需要多模态额度）
+# "keyboard" = 键盘输入场景描述
 # ============================================
-VISION_MODE = "simulate"     # "simulate" 或 "real"
+VISION_MODE = "keyboard"     # 默认改为键盘输入模式
 SCENE_DESCRIPTION = "一只橘猫趴在窗台上，阳光照在它身上"
 IMAGE_PATH = None            # 真实图片模式时填写，如 "photo.jpg"
 

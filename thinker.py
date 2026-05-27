@@ -33,7 +33,7 @@ class Thinker:
             memory_info = f'不认识"{keyword}"，这是什么？'
             self.memory.add_short(name=keyword, feature=visual_summary)
 
-        num_sentences = true_random_int(1, 3)
+        num_sentences = true_random_int(1, 2)
         sentence_lengths = [true_random_int(3, 8) for _ in range(num_sentences)]
 
         raw_sentences = []

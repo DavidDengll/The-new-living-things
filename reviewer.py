@@ -84,10 +84,12 @@ class Reviewer:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.1,
+                temperature=0.0,
                 max_tokens=500
             )
             result = response.choices[0].message.content.strip()
+            # 打印原始返回，方便调试
+            print(f"📝 审查官原始返回:\n{result}")
             return self._parse_batch_result(result, raw_sentences)
 
         except Exception as e:
@@ -111,6 +113,7 @@ class Reviewer:
                 lines = [l.strip() for l in block.split("\n") if l.strip()]
 
                 for line in lines:
+                    # 格式1: "念头序号|分数"
                     if "|" in line and any(c.isdigit() for c in line):
                         parts = line.split("|")
                         for part in parts:
@@ -118,15 +121,19 @@ class Reviewer:
                             if nums:
                                 score = float(nums[0])
                                 break
+                    # 格式2: 纯数字行
                     elif line.isdigit() and len(line) <= 2:
                         score = float(line)
+                    # 格式3: 包含"分"字
                     elif "分" in line and any(c.isdigit() for c in line):
                         nums = re.findall(r'\d+', line)
                         if nums:
                             score = float(nums[0])
+                    # 解释行
                     elif len(line) > 3 and not line.startswith("念头"):
                         if explanation == "解析失败":
                             explanation = line
+                    # 概念行
                     if line != lines[0] and line not in ["无", "解析失败"] and len(line) <= 10:
                         if related_concept == "" and line != explanation:
                             related_concept = line

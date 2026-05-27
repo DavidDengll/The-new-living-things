@@ -17,7 +17,7 @@ class ConsciousnessSystem:
     def __init__(self, vision_mode=None, scene_description=None, image_path=None,
                  speak_threshold=None, min_meaning_score=None, max_retries=None,
                  curiosity_threshold=None):
-        print(f"⚙️ 初始化视觉感知器...")
+        print(f"⚙️ 初始化视觉感知器 (模式: {vision_mode or VISION_MODE})...")
         self.visual = VisualModel(
             mode=vision_mode if vision_mode is not None else VISION_MODE,
             description=scene_description if scene_description is not None else SCENE_DESCRIPTION,
@@ -88,6 +88,7 @@ class ConsciousnessSystem:
         self.emotion.update()
         mood = self.emotion.get_state()
 
+        # 视觉感知（键盘模式下会在这里等用户输入）
         scene = self.visual.see()
         print(f"👁️ 看到: {scene}")
         keyword = self.visual.extract_keywords(scene)
@@ -206,9 +207,12 @@ class ConsciousnessSystem:
 if __name__ == "__main__":
     system = ConsciousnessSystem()
     print("=== 熵灵双层心智系统启动 ===\n")
+    print("💡 提示：每轮请输入场景描述，输入 'quit' 退出程序。\n")
     try:
-        for i in range(12):
+        for i in range(50):  # 最多跑50轮
             print(f"🔂 第 {i+1} 轮:")
             system.run_once()
+    except KeyboardInterrupt:
+        print("\n👋 程序被中断，正在保存状态...")
     finally:
         system.close()
