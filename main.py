@@ -5,6 +5,7 @@ from thinker import Thinker
 from reviewer import Reviewer
 from language_model import LanguageModel
 from emotion import Emotion
+from classifier import Classifier
 from randomness import true_random_byte
 from config import (
     SPEAK_THRESHOLD, MIN_MEANING_SCORE, MAX_RETRIES, CURIOSITY_THRESHOLD,
@@ -18,13 +19,19 @@ class ConsciousnessSystem:
                  speak_threshold=None, min_meaning_score=None, max_retries=None,
                  curiosity_threshold=None):
         print(f"⚙️ 初始化视觉感知器 (模式: {vision_mode or VISION_MODE})...")
+
+        self.memory = MemorySystem()
+        self._seed_initial_memories()
+
+        # 初始化分类器（传给视觉模型用）
+        self.classifier = Classifier(memory_system=self.memory)
+
         self.visual = VisualModel(
             mode=vision_mode if vision_mode is not None else VISION_MODE,
             description=scene_description if scene_description is not None else SCENE_DESCRIPTION,
-            image_path=image_path if image_path is not None else IMAGE_PATH
+            image_path=image_path if image_path is not None else IMAGE_PATH,
+            classifier=self.classifier
         )
-        self.memory = MemorySystem()
-        self._seed_initial_memories()
 
         self.thinker = Thinker(self.memory)
         self.language_model = LanguageModel()
@@ -88,20 +95,24 @@ class ConsciousnessSystem:
         self.emotion.update()
         mood = self.emotion.get_state()
 
-        # 视觉感知（键盘模式下会在这里等用户输入）
         scene = self.visual.see()
         print(f"👁️ 看到: {scene}")
-        keyword = self.visual.extract_keywords(scene)
+
+        keywords = self.visual.extract_keywords(scene)
+        main_subject = self.visual.get_main_subject(scene)
+        print(f"🔑 关键词: {keywords} | 主要对象: {main_subject}")
+
+        primary_keyword = main_subject if main_subject and main_subject != "未知" else (keywords[0] if keywords else "未知")
 
         outer_response = self.language_model.generate_response(scene, mood)
 
-        result = self.thinker.think(keyword, scene, hint=None)
+        result = self.thinker.think(primary_keyword, scene, hint=None)
         print(f"🧠 记忆查询: {result['memory_info']}")
 
         is_unknown = "不认识" in result['memory_info']
         if is_unknown:
             self.unknown_streak += 1
-            self.last_unknown_keyword = keyword
+            self.last_unknown_keyword = primary_keyword
             self.emotion.update("unknown_streak")
         else:
             self.unknown_streak = 0
@@ -141,7 +152,7 @@ class ConsciousnessSystem:
             hint = None
 
             for attempt in range(1, self.max_retries + 1):
-                current_result = self.thinker.think(keyword, scene, hint=hint)
+                current_result = self.thinker.think(primary_keyword, scene, hint=hint)
 
                 judge_results = reviewer.judge_batch(
                     current_result['raw_sentences'],
@@ -209,7 +220,7 @@ if __name__ == "__main__":
     print("=== 熵灵双层心智系统启动 ===\n")
     print("💡 提示：每轮请输入场景描述，输入 'quit' 退出程序。\n")
     try:
-        for i in range(50):  # 最多跑50轮
+        for i in range(50):
             print(f"🔂 第 {i+1} 轮:")
             system.run_once()
     except KeyboardInterrupt:
