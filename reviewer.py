@@ -77,6 +77,11 @@ class Reviewer:
 
         print(f"⚖️ 批量审查 {len(raw_sentences)} 个念头...")
 
+        # 动态估算 max_tokens
+        prompt_length = len(system_prompt) + len(user_prompt) + len(sentences_text)
+        estimated_tokens = prompt_length // 2 + 200
+        max_tokens = min(800, max(200, estimated_tokens))
+
         try:
             response = self.client.chat.completions.create(
                 model=self.model_name,
@@ -85,7 +90,7 @@ class Reviewer:
                     {"role": "user", "content": user_prompt}
                 ],
                 temperature=0.0,
-                max_tokens=800
+                max_tokens=max_tokens
             )
             result = response.choices[0].message.content.strip()
             print(f"📝 审查官原始返回:\n{result}")

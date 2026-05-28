@@ -54,6 +54,9 @@ class ConsciousnessSystem:
 
         self.rejection_streak = 0
 
+        # 审查缓存
+        self.review_cache = {}
+
     def _seed_initial_memories(self):
         import sqlite3
         conn = sqlite3.connect("entropy_memory.db")
@@ -93,6 +96,26 @@ class ConsciousnessSystem:
         raw = true_random_byte()
         return (raw / 255.0) > adjusted
 
+    def _get_cached_review(self, scene, sentence):
+        import hashlib
+        scene_key = hashlib.md5(scene.encode()).hexdigest()[:8]
+        if scene_key in self.review_cache:
+            if sentence in self.review_cache[scene_key]:
+                cached = self.review_cache[scene_key][sentence]
+                print(f"📦 使用缓存审查结果: {cached[0]}/10")
+                return cached
+        return None
+
+    def _set_cached_review(self, scene, sentence, score, explanation, concept):
+        import hashlib
+        scene_key = hashlib.md5(scene.encode()).hexdigest()[:8]
+        if scene_key not in self.review_cache:
+            self.review_cache[scene_key] = {}
+            if len(self.review_cache) > 5:
+                oldest_key = list(self.review_cache.keys())[0]
+                del self.review_cache[oldest_key]
+        self.review_cache[scene_key][sentence] = (score, explanation, concept)
+
     def run_once(self):
         self.emotion.update()
         mood = self.emotion.get_state()
@@ -101,10 +124,6 @@ class ConsciousnessSystem:
         print(f"👁️ 看到: {scene}")
 
         keywords = self.visual.extract_keywords(scene)
-        if keywords and len(keywords[0]) > 6:
-            from tokenizer import extract_keywords as fallback_extract
-            keywords = fallback_extract(scene, max_keywords=5)
-
         main_subject = self.visual.get_main_subject(scene)
         print(f"🔑 关键词: {keywords} | 主要对象: {main_subject}")
 
@@ -130,8 +149,14 @@ class ConsciousnessSystem:
             print("🤫 沉默")
             self.emotion.update("silence")
             inner_murmur = self.thinker.generate_raw_thought(length=random.randint(3, 7))
-            reviewer = Reviewer(scene, memory_system=self.memory)
-            murmur_score, murmur_reason, _ = reviewer.judge(inner_murmur, rejection_streak=self.rejection_streak)
+
+            cached = self._get_cached_review(scene, inner_murmur)
+            if cached:
+                murmur_score, murmur_reason, _ = cached
+            else:
+                reviewer = Reviewer(scene, memory_system=self.memory)
+                murmur_score, murmur_reason, _ = reviewer.judge(inner_murmur, rejection_streak=self.rejection_streak)
+                self._set_cached_review(scene, inner_murmur, murmur_score, murmur_reason, "")
 
             if murmur_score >= self.min_meaning_score:
                 final_output = f"（内心一闪：{inner_murmur}）"
@@ -159,10 +184,23 @@ class ConsciousnessSystem:
             for attempt in range(1, self.max_retries + 1):
                 current_result = self.thinker.think(primary_keyword, scene, hint=hint)
 
-                judge_results = reviewer.judge_batch(
-                    current_result['raw_sentences'],
-                    rejection_streak=self.rejection_streak
-                )
+                judge_results = []
+                uncached_sentences = []
+                for s in current_result['raw_sentences']:
+                    cached = self._get_cached_review(scene, s)
+                    if cached:
+                        judge_results.append((s, cached[0], cached[1], cached[2]))
+                    else:
+                        uncached_sentences.append(s)
+
+                if uncached_sentences:
+                    new_results = reviewer.judge_batch(
+                        uncached_sentences,
+                        rejection_streak=self.rejection_streak
+                    )
+                    for s, score, explanation, concept in new_results:
+                        self._set_cached_review(scene, s, score, explanation, concept)
+                        judge_results.append((s, score, explanation, concept))
 
                 best_in_batch = None
                 best_in_batch_score = -1
@@ -185,10 +223,8 @@ class ConsciousnessSystem:
                     best_concept = current_concept
                     if best_concept and best_concept.strip():
                         hint = best_concept.strip()
-                    elif best_sentence and len(best_sentence) >= 2:
-                        hint = best_sentence[-2:]
                     else:
-                        hint = best_sentence
+                        hint = None
 
                 if best_score >= self.min_meaning_score:
                     print(f"  ✅ 达到意义阈值，停止重试")

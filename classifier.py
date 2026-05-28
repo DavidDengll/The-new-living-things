@@ -2,6 +2,7 @@
 from zhipuai import ZhipuAI
 from config import ZHIPU_API_KEY, ZHIPU_MODEL_NAME
 import json
+import re
 
 class Classifier:
     """
@@ -55,23 +56,27 @@ class Classifier:
             result_text = response.choices[0].message.content.strip()
             print(f"📝 分类原始返回: {result_text}")
 
-            # 尝试清理 JSON（去掉可能的代码块标记）
-            if result_text.startswith("```"):
-                lines = result_text.split("\n")
-                result_text = "\n".join(lines[1:-1])
+            # 用正则提取 JSON 对象
+            json_match = re.search(r'\{[^{}]*"words"\s*:\s*\[.*?\]\s*,\s*"main_subject"\s*:\s*"[^"]*"\s*\}', result_text, re.DOTALL)
+            if not json_match:
+                json_match = re.search(r'\{.*?\}', result_text, re.DOTALL)
 
-            result = json.loads(result_text)
-            return result
+            if json_match:
+                clean_json = json_match.group()
+                result = json.loads(clean_json)
+                return result
+            else:
+                raise json.JSONDecodeError("未找到有效JSON", result_text, 0)
 
         except json.JSONDecodeError:
-            print(f"⚠️ JSON 解析失败，尝试修复...")
+            print(f"⚠️ JSON 解析失败，使用兜底分词")
             return self._fallback_classify(text)
         except Exception as e:
             print(f"❌ 分类失败: {e}")
             return self._fallback_classify(text)
 
     def _fallback_classify(self, text):
-        """分类失败时的兜底方案：按标点拆词"""
+        """兜底：按标点拆词"""
         words = []
         for sep in "，。！？、；： ":
             text = text.replace(sep, " ")
@@ -79,26 +84,22 @@ class Classifier:
         for seg in segments:
             if seg.strip():
                 words.append({"word": seg.strip(), "type": "名词"})
-
         main_subject = words[0]["word"] if words else "未知"
         return {"words": words, "main_subject": main_subject}
 
     def extract_keywords(self, text, max_keywords=5):
         result = self.classify(text)
         words = result.get("words", [])
-
         keywords = []
         for w in words:
             if w["type"] in ("名词", "形容词"):
                 keywords.append(w["word"])
-
         if len(keywords) < max_keywords:
             for w in words:
                 if w["word"] not in keywords:
                     keywords.append(w["word"])
                     if len(keywords) >= max_keywords:
                         break
-
         return keywords[:max_keywords]
 
     def get_main_subject(self, text):
