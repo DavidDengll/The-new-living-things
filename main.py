@@ -5,14 +5,16 @@ from thinker import Thinker
 from reviewer import Reviewer
 from language_model import LanguageModel
 from emotion import Emotion
-from classifier import Classifier
 from randomness import true_random_byte
 from config import (
     SPEAK_THRESHOLD, MIN_MEANING_SCORE, MAX_RETRIES, CURIOSITY_THRESHOLD,
     VISION_MODE, SCENE_DESCRIPTION, IMAGE_PATH,
-    REJECTION_BONUS_MAX, REJECTION_BONUS_PER_STREAK
+    REJECTION_BONUS_MAX, REJECTION_BONUS_PER_STREAK, USE_CLOUD_CLASSIFIER
 )
 import random
+
+if USE_CLOUD_CLASSIFIER:
+    from classifier import Classifier
 
 class ConsciousnessSystem:
     def __init__(self, vision_mode=None, scene_description=None, image_path=None,
@@ -23,8 +25,9 @@ class ConsciousnessSystem:
         self.memory = MemorySystem()
         self._seed_initial_memories()
 
-        # 初始化分类器（传给视觉模型用）
-        self.classifier = Classifier(memory_system=self.memory)
+        self.classifier = None
+        if USE_CLOUD_CLASSIFIER:
+            self.classifier = Classifier(memory_system=self.memory)
 
         self.visual = VisualModel(
             mode=vision_mode if vision_mode is not None else VISION_MODE,
@@ -69,7 +72,6 @@ class ConsciousnessSystem:
             self.current_threshold = min(0.9, self.current_threshold + 0.05)
             print(f"📈 动态阈值（惩罚）: {self.current_threshold:.2f}")
             return
-
         self.score_history.append(final_score)
         if len(self.score_history) > self.history_size:
             self.score_history.pop(0)
@@ -99,6 +101,10 @@ class ConsciousnessSystem:
         print(f"👁️ 看到: {scene}")
 
         keywords = self.visual.extract_keywords(scene)
+        if keywords and len(keywords[0]) > 6:
+            from tokenizer import extract_keywords as fallback_extract
+            keywords = fallback_extract(scene, max_keywords=5)
+
         main_subject = self.visual.get_main_subject(scene)
         print(f"🔑 关键词: {keywords} | 主要对象: {main_subject}")
 
@@ -123,7 +129,6 @@ class ConsciousnessSystem:
         if not self.should_speak(mood, rejection_bonus):
             print("🤫 沉默")
             self.emotion.update("silence")
-
             inner_murmur = self.thinker.generate_raw_thought(length=random.randint(3, 7))
             reviewer = Reviewer(scene, memory_system=self.memory)
             murmur_score, murmur_reason, _ = reviewer.judge(inner_murmur, rejection_streak=self.rejection_streak)
@@ -218,7 +223,7 @@ class ConsciousnessSystem:
 if __name__ == "__main__":
     system = ConsciousnessSystem()
     print("=== 熵灵双层心智系统启动 ===\n")
-    print("💡 提示：每轮请输入场景描述，输入 'quit' 退出程序。\n")
+    print("💡 提示：每轮请输入场景描述，输入 Ctrl+C 退出程序。\n")
     try:
         for i in range(50):
             print(f"🔂 第 {i+1} 轮:")
