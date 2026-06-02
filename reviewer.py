@@ -77,7 +77,6 @@ class Reviewer:
 
         print(f"⚖️ 批量审查 {len(raw_sentences)} 个念头...")
 
-        # 动态估算 max_tokens
         prompt_length = len(system_prompt) + len(user_prompt) + len(sentences_text)
         estimated_tokens = prompt_length // 2 + 200
         max_tokens = min(800, max(200, estimated_tokens))

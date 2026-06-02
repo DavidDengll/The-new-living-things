@@ -1,0 +1,195 @@
+# solver.py
+from zhipuai import ZhipuAI
+from config import ZHIPU_API_KEY, ZHIPU_MODEL_NAME
+import json
+import re
+import jieba
+
+class Solver:
+    def __init__(self, memory_system=None):
+        if not ZHIPU_API_KEY or ZHIPU_API_KEY == "你的真实API-KEY":
+            raise ValueError("请在 config.py 或环境变量中设置有效的 ZHIPU_API_KEY")
+        self.client = ZhipuAI(api_key=ZHIPU_API_KEY)
+        self.model_name = ZHIPU_MODEL_NAME
+        self.memory_system = memory_system
+
+    def solve(self, question, scene_description=""):
+        print(f"🤔 解答者正在思考: {question}")
+
+        related_memories = self._retrieve_related_memories(question, scene_description)
+
+        # 如果记忆不足，联网搜索补充
+        if len(related_memories) < 2:
+            print("📡 记忆不足，尝试联网搜索...")
+            web_knowledge = self._web_search_if_needed(question)
+            if web_knowledge:
+                # 将联网结果作为补充知识，但不存入记忆（避免污染）
+                related_memories.append({"name": "网络知识", "feature": " ".join(web_knowledge[:2])})
+
+        answer = self._generate_with_analogies(question, related_memories, scene_description)
+
+        if not answer.get("answer") or not answer["answer"].strip():
+            answer["answer"] = "抱歉，我暂时无法解答这个问题。"
+            answer["analogies"] = answer.get("analogies", [])
+            answer["confidence"] = "低"
+
+        return answer
+
+    def _retrieve_related_memories(self, question, scene_description=""):
+        if not self.memory_system:
+            return []
+
+        cursor = self.memory_system.conn.cursor()
+        cursor.execute("SELECT name, feature, level FROM memories LIMIT 50")
+        rows = cursor.fetchall()
+        if not rows:
+            return []
+
+        q_words = set(jieba.lcut(f"{question} {scene_description}"))
+        skip_words = {"的", "了", "在", "是", "有", "它", "这", "那", "什么", "怎么", "为什么", "吗", "呢", "吧", "啊"}
+        q_words = {w for w in q_words if w not in skip_words and len(w.strip()) >= 1}
+
+        candidates = []
+        for r in rows:
+            name, feature = r[0], r[1]
+            mem_words = set(jieba.lcut(f"{name} {feature}"))
+            overlap = q_words & mem_words
+            if overlap:
+                candidates.append({
+                    "name": name,
+                    "feature": feature,
+                    "level": r[2],
+                    "score": len(overlap)
+                })
+
+        candidates.sort(key=lambda x: x["score"], reverse=True)
+        # 直接取前5个，不做大模型重排序
+        related = [{"name": c["name"], "feature": c["feature"], "level": c["level"]} for c in candidates[:5]]
+        print(f"🧠 快速检索: 找到 {len(related)} 个相关概念")
+        return related
+
+    def _web_search_if_needed(self, question):
+        try:
+            from duckduckgo_search import DDGS
+            print(f"🌐 正在联网搜索: {question}")
+            results = []
+            with DDGS() as ddgs:
+                search_results = list(ddgs.text(question, max_results=3))
+                for r in search_results:
+                    body = r.get("body", "")
+                    if body:
+                        results.append(body)
+            if results:
+                print(f"✅ 联网搜索获取 {len(results)} 条结果")
+            return results
+        except ImportError:
+            print(f"⚠️ 未安装 duckduckgo_search 库，跳过联网搜索。安装: pip install duckduckgo_search")
+            return []
+        except Exception as e:
+            print(f"⚠️ 联网搜索失败: {e}")
+            return []
+
+    def _generate_with_analogies(self, question, related_memories, scene_description=""):
+        memory_text = ""
+        if related_memories:
+            lines = []
+            for m in related_memories[:5]:
+                feature_short = m['feature'][:50]
+                lines.append(f"- {m['name']}：{feature_short}")
+            memory_text = "相关知识：\n" + "\n".join(lines)
+
+        scene_text = f"当前场景：{scene_description}\n" if scene_description else ""
+
+        prompt_body = f"""{scene_text}{memory_text}
+问题：{question}"""
+
+        estimated_prompt_tokens = len(prompt_body) // 2
+        dynamic_max_tokens = min(800, max(300, estimated_prompt_tokens + 400))
+
+        prompt = f"""你是一个善于通过类比来解答问题的思考者。
+
+{prompt_body}
+
+请按以下步骤思考并回答：
+1. 从已知概念中找出与问题最相似的2~3个概念，说明相似点
+2. 基于这些相似点进行类比推理
+3. 给出最终答案
+
+请严格按以下JSON格式返回（不要其他内容）：
+{{"analogies":[{{"source":"概念名","similarity":"相似点","insight":"启发"}}],"answer":"完整解答（含推理过程）","confidence":"高/中/低"}}"""
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.5,
+                max_tokens=dynamic_max_tokens
+            )
+            result_text = self._clean_json_text(response.choices[0].message.content.strip())
+
+            json_match = re.search(r'\{.*\}', result_text, re.DOTALL)
+            if json_match:
+                result = json.loads(json_match.group())
+                analogies = result.get("analogies", [])
+                answer_text = result.get("answer", "")
+
+                # 客观置信度：基于类比数量
+                if len(analogies) >= 2:
+                    confidence = "高"
+                elif len(analogies) == 1:
+                    confidence = "中"
+                else:
+                    confidence = "低"
+
+                if not answer_text or not answer_text.strip():
+                    answer_text = "抱歉，我暂时无法解答这个问题。"
+                    confidence = "低"
+
+                print(f"🔗 构建了 {len(analogies)} 条类比链 | 置信度: {confidence}")
+                return {
+                    "answer": answer_text,
+                    "analogies": analogies,
+                    "confidence": confidence
+                }
+
+            print(f"⚠️ JSON 解析失败，使用原始文本")
+            return {
+                "answer": result_text if result_text else "抱歉，我暂时无法解答这个问题。",
+                "analogies": [],
+                "confidence": "低"
+            }
+
+        except Exception as e:
+            print(f"❌ 生成失败: {e}")
+            return {
+                "answer": "抱歉，我暂时无法解答这个问题。",
+                "analogies": [],
+                "confidence": "低"
+            }
+
+    def _clean_json_text(self, text):
+        if not text:
+            return ""
+        text = re.sub(r'^```(?:json)?\s*\n?', '', text.strip())
+        text = re.sub(r'\n?```$', '', text)
+        return text.strip()
+
+    def should_solve(self, text):
+        """纯规则判断是否需要解答，不调大模型"""
+        if not text or not text.strip():
+            return False
+
+        question_keywords = {"为什么", "怎么", "如何", "什么是", "是什么", "会不会", "能不能", "怎么回事", "怎么样", "?", "？", "吗", "呢"}
+        if any(kw in text for kw in question_keywords):
+            return True
+
+        request_patterns = {"帮我", "教我", "告诉我", "解释一下", "说一下", "讲讲", "能不能", "可以吗", "行不行", "好吗", "好不好"}
+        if any(pattern in text for pattern in request_patterns):
+            return True
+
+        statement_patterns = {"我看到", "输入场景", "一只", "今天天气", "你好", "再见"}
+        if any(pattern in text for pattern in statement_patterns):
+            return False
+
+        # 其他情况默认不是疑问句
+        return False

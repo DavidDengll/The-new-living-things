@@ -3,6 +3,7 @@ from zhipuai import ZhipuAI
 from config import ZHIPU_API_KEY, ZHIPU_MODEL_NAME
 import random
 import time
+import hashlib
 
 class LanguageModel:
     def __init__(self):
@@ -17,8 +18,23 @@ class LanguageModel:
             "我需要再观察一会儿。",
             "这个世界总是充满意外。"
         ]
+        # 回复缓存：{场景哈希: 回复文本}
+        self._response_cache = {}
+
+    def _get_cache_key(self, visual_summary, mood=None):
+        """生成缓存键"""
+        mood_str = str(mood) if mood else ""
+        raw = f"{visual_summary}|{mood_str}"
+        return hashlib.md5(raw.encode()).hexdigest()
 
     def generate_response(self, visual_summary, mood=None):
+        # 检查缓存
+        cache_key = self._get_cache_key(visual_summary, mood)
+        if cache_key in self._response_cache:
+            cached = self._response_cache[cache_key]
+            print(f"📦 使用缓存的回复: {cached}")
+            return cached
+
         print(f"⏳ 正在请求大模型...")
         system_prompt = "你是一个观察者，会用简洁、生动的一句话描述你所看到的情景。一定要回复，不要留空。"
         user_prompt = f"我看到：{visual_summary}"
@@ -41,6 +57,11 @@ class LanguageModel:
                         llm_output = llm_output.strip()
                         if llm_output and len(llm_output) > 0:
                             print(f"✅ 大模型回复: {llm_output}")
+                            # 存入缓存（最多 50 条）
+                            if len(self._response_cache) >= 50:
+                                oldest_key = list(self._response_cache.keys())[0]
+                                del self._response_cache[oldest_key]
+                            self._response_cache[cache_key] = llm_output
                             return llm_output
 
                 print(f"⚠️ 大模型返回空内容 (第{retry+1}次)，尝试重试...")

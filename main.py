@@ -5,6 +5,8 @@ from thinker import Thinker
 from reviewer import Reviewer
 from language_model import LanguageModel
 from emotion import Emotion
+from solver import Solver
+from planner import Planner
 from randomness import true_random_byte
 from config import (
     SPEAK_THRESHOLD, MIN_MEANING_SCORE, MAX_RETRIES, CURIOSITY_THRESHOLD,
@@ -39,6 +41,8 @@ class ConsciousnessSystem:
         self.thinker = Thinker(self.memory)
         self.language_model = LanguageModel()
         self.emotion = Emotion()
+        self.solver = Solver(memory_system=self.memory)
+        self.planner = Planner()
 
         self.base_threshold = speak_threshold if speak_threshold is not None else SPEAK_THRESHOLD
         self.current_threshold = self.base_threshold
@@ -53,8 +57,6 @@ class ConsciousnessSystem:
         self.last_unknown_keyword = None
 
         self.rejection_streak = 0
-
-        # 审查缓存
         self.review_cache = {}
 
     def _seed_initial_memories(self):
@@ -129,10 +131,32 @@ class ConsciousnessSystem:
 
         primary_keyword = main_subject if main_subject and main_subject != "未知" else (keywords[0] if keywords else "未知")
 
-        outer_response = self.language_model.generate_response(scene, mood)
+        # 提前判断是否触发解答，以便传给思考者
+        solver_triggered = self.solver.should_solve(scene)
+        question_text = scene if solver_triggered else ""
 
-        result = self.thinker.think(primary_keyword, scene, hint=None)
+        result = self.thinker.think(primary_keyword, scene, hint=None, question=question_text)
         print(f"🧠 记忆查询: {result['memory_info']}")
+
+        # 思考者是否已附带解答
+        thinker_answer = result.get("thinker_answer")
+
+        # 解答者调度
+        solver_answer = None
+        if solver_triggered:
+            if thinker_answer:
+                print(f"💡 思考者已附带解答，跳过解答者 API 调用")
+                solver_answer = thinker_answer
+            else:
+                print("🤔 检测到疑问，启动解答者...")
+                solution = self.solver.solve(scene, scene_description=scene)
+                solver_answer = solution.get("answer", "我无法回答这个问题。")
+                print(f"💡 解答者: {solver_answer[:120]}...")
+
+        if solver_answer:
+            outer_response = solver_answer
+        else:
+            outer_response = self.language_model.generate_response(scene, mood)
 
         is_unknown = "不认识" in result['memory_info']
         if is_unknown:
@@ -144,6 +168,10 @@ class ConsciousnessSystem:
             self.emotion.update("learn_new")
 
         rejection_bonus = min(REJECTION_BONUS_MAX, self.rejection_streak * REJECTION_BONUS_PER_STREAK)
+        texts_for_planner = []
+
+        # 决定是否跳过念头生成
+        skip_gen = (solver_triggered and thinker_answer is not None)
 
         if not self.should_speak(mood, rejection_bonus):
             print("🤫 沉默")
@@ -161,6 +189,7 @@ class ConsciousnessSystem:
             if murmur_score >= self.min_meaning_score:
                 final_output = f"（内心一闪：{inner_murmur}）"
                 final_inner_score = murmur_score
+                texts_for_planner.append(inner_murmur)
                 print(f"💭 内心闪过有意义: {inner_murmur} (得分 {murmur_score}/10)")
                 self._update_threshold(final_inner_score)
                 self.rejection_streak = 0
@@ -182,8 +211,11 @@ class ConsciousnessSystem:
             hint = None
 
             for attempt in range(1, self.max_retries + 1):
-                current_result = self.thinker.think(primary_keyword, scene, hint=hint)
-
+                current_result = self.thinker.think(
+                    primary_keyword, scene, hint=hint,
+                    question=question_text,
+                    skip_thoughts=skip_gen
+                )
                 judge_results = []
                 uncached_sentences = []
                 for s in current_result['raw_sentences']:
@@ -194,10 +226,7 @@ class ConsciousnessSystem:
                         uncached_sentences.append(s)
 
                 if uncached_sentences:
-                    new_results = reviewer.judge_batch(
-                        uncached_sentences,
-                        rejection_streak=self.rejection_streak
-                    )
+                    new_results = reviewer.judge_batch(uncached_sentences, rejection_streak=self.rejection_streak)
                     for s, score, explanation, concept in new_results:
                         self._set_cached_review(scene, s, score, explanation, concept)
                         judge_results.append((s, score, explanation, concept))
@@ -235,10 +264,13 @@ class ConsciousnessSystem:
                     else:
                         print(f"  ❌ 已达最大重试次数，采用当前最佳。")
 
-            append_text = f" {best_sentence}"
+            append_text = f" {best_sentence}" if best_sentence else ""
             final_output = outer_response + append_text
             final_inner_score = best_score
-            print(f"💬 插入: {best_sentence}")
+            if best_sentence:
+                texts_for_planner.append(outer_response)
+                texts_for_planner.append(best_sentence)
+                print(f"💬 插入: {best_sentence}")
             self._update_threshold(final_inner_score)
             self.rejection_streak = 0
 
@@ -247,6 +279,17 @@ class ConsciousnessSystem:
             final_output = f"[好奇心] {question} -- {final_output}"
             self.unknown_streak = 0
             self.emotion.update("question_asked")
+
+        if solver_answer:
+            texts_for_planner.append(solver_answer)
+
+        for text in texts_for_planner:
+            action_plan = self.planner.plan(text, scene_description=scene)
+            if action_plan.get("status") == "success":
+                action_text = self.planner.generate_action_prompt(action_plan)
+                print(f"📋 规划者: {action_text}")
+                final_output = f"{final_output}\n📋 {action_text}"
+                self.planner.simulate_execution(action_plan)
 
         print(f"✅ 最终回复: {final_output}")
         print(f"📊 情绪状态: {mood} | 反驳冲动: {self.rejection_streak}")

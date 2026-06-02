@@ -3,6 +3,7 @@ import sqlite3
 import datetime
 import random
 from config import SHORT_TO_LONG_COUNT, LONG_TO_PERMANENT_COUNT
+import jieba
 
 DB_PATH = "entropy_memory.db"
 
@@ -47,7 +48,7 @@ class MemorySystem:
         if cursor.rowcount > 0:
             print(f"🧹 过期记忆已清理")
 
-    def search(self, keyword, new_feature=None):
+    def search(self, keyword):
         self._cleanup()
         today = self._today()
         cursor = self.conn.cursor()
@@ -66,15 +67,12 @@ class MemorySystem:
                 mem["mentioned_count"] = 1
             mem["last_mentioned_date"] = today
 
-            if new_feature:
-                self._update_feature(mem, new_feature)
-
             self._try_upgrade(mem)
 
             cursor.execute("""
-                UPDATE memories SET mentioned_count=?, last_mentioned_date=?, feature=?, level=?
+                UPDATE memories SET mentioned_count=?, last_mentioned_date=?, level=?
                 WHERE id=?
-            """, (mem["mentioned_count"], mem["last_mentioned_date"], mem["feature"], mem["level"], mem["id"]))
+            """, (mem["mentioned_count"], mem["last_mentioned_date"], mem["level"], mem["id"]))
             self.conn.commit()
             return mem["feature"]
         return None
@@ -89,50 +87,37 @@ class MemorySystem:
             mem["mentioned_count"] = 0
             print(f"⬆️ 升级：长期 → 永久: {mem['name']}")
 
-    def _update_feature(self, mem, new_desc):
-        old_words = [w.strip() for w in mem["feature"].replace("，", " ").replace("。", " ").replace("、", " ").split() if w.strip()]
-        new_words = [w.strip() for w in new_desc.replace("，", " ").replace("。", " ").replace("、", " ").split() if w.strip()]
-
-        freq = {}
-        for w in old_words:
-            freq[w] = freq.get(w, 0) + 1
-        for w in new_words:
-            freq[w] = freq.get(w, 0) + 1
-
-        top_words = sorted(freq, key=freq.get, reverse=True)[:5]
-        mem["feature"] = "、".join(top_words)
-        print(f"🔄 特征更新: {mem['name']} → {mem['feature']}")
-
-    def get_random_fragment(self, min_len=1, max_len=4):
-        cursor = self.conn.cursor()
-        cursor.execute("SELECT feature FROM memories WHERE level IN ('permanent','long') ORDER BY RANDOM() LIMIT 1")
-        row = cursor.fetchone()
-        if not row:
-            cursor.execute("SELECT feature FROM memories ORDER BY RANDOM() LIMIT 1")
-            row = cursor.fetchone()
-        if not row:
-            return ""
-
-        feature_text = row[0]
-        words = [w.strip() for w in feature_text.replace("，", " ").replace("、", " ").split() if w.strip()]
-        if not words:
-            return ""
-
-        chosen_word = random.choice(words)
-        if len(chosen_word) <= min_len:
-            return chosen_word
-
-        max_start = max(0, len(chosen_word) - min_len)
-        start = random.randint(0, max_start)
-        end = min(start + random.randint(min_len, max_len), len(chosen_word))
-        return chosen_word[start:end]
+    def _extract_keywords(self, text):
+        """从文本中提取关键词，用于特征合并"""
+        words = jieba.lcut(text)
+        # 保留名词、动词、形容词，过滤掉停用词
+        skip_words = {"的", "了", "在", "是", "有", "它", "这", "那", "什么", "怎么", "为什么", "吗", "呢", "吧", "啊", "一只", "一个", "一条", "这个", "那个", "这些", "那些", "上面", "下面", "里面", "外面", "非常", "特别", "比较", "更", "最", "太", "正在", "已经", "马上", "刚才", "现在"}
+        keywords = [w for w in words if w not in skip_words and len(w.strip()) >= 1]
+        # 去重
+        return list(set(keywords))
 
     def add_short(self, name, feature):
+        """添加短期记忆，如果同名记忆已存在则合并特征"""
         cursor = self.conn.cursor()
-        cursor.execute("SELECT id FROM memories WHERE name=? AND level='permanent'", (name,))
-        if cursor.fetchone():
-            return
         today = self._today()
+
+        # 检查是否已存在同名记忆（任意级别）
+        cursor.execute("SELECT id, feature, level FROM memories WHERE name=?", (name,))
+        existing = cursor.fetchone()
+        if existing:
+            # 合并特征：提取新旧特征关键词，合并去重后取前5个
+            old_feature = existing[1] if existing[1] else ""
+            old_keywords = self._extract_keywords(old_feature)
+            new_keywords = self._extract_keywords(feature)
+            all_keywords = list(set(old_keywords + new_keywords))[:5]
+            merged_feature = "、".join(all_keywords) if all_keywords else feature
+            cursor.execute("UPDATE memories SET feature=?, created=?, mentioned_count=0 WHERE id=?",
+                           (merged_feature, today, existing[0]))
+            self.conn.commit()
+            print(f"🔄 特征合并: {name} → {merged_feature}")
+            return
+
+        # 不存在则插入新记录
         cursor.execute("INSERT INTO memories (name, feature, level, created) VALUES (?,?,?,?)",
                        (name, feature, 'short', today))
         self.conn.commit()
@@ -145,6 +130,27 @@ class MemorySystem:
                        (name, feature, 'permanent', today))
         self.conn.commit()
         print(f"🧬 永久记忆植入: {name}（特征: {feature}）")
+
+    def get_random_fragment(self, min_len=1, max_len=4):
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT feature FROM memories WHERE level IN ('permanent','long') ORDER BY RANDOM() LIMIT 1")
+        row = cursor.fetchone()
+        if not row:
+            cursor.execute("SELECT feature FROM memories ORDER BY RANDOM() LIMIT 1")
+            row = cursor.fetchone()
+        if not row:
+            return ""
+        feature_text = row[0]
+        words = [w.strip() for w in feature_text.replace("，", " ").replace("、", " ").split() if w.strip()]
+        if not words:
+            return ""
+        chosen_word = random.choice(words)
+        if len(chosen_word) <= min_len:
+            return chosen_word
+        max_start = max(0, len(chosen_word) - min_len)
+        start = random.randint(0, max_start)
+        end = min(start + random.randint(min_len, max_len), len(chosen_word))
+        return chosen_word[start:end]
 
     def close(self):
         self.conn.close()

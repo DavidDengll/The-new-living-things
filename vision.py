@@ -61,7 +61,6 @@ class VisualModel:
         return text
 
     def extract_keywords(self, description):
-        # 优先使用云端分类器
         if self.classifier and USE_CLOUD_CLASSIFIER:
             try:
                 keywords = self.classifier.extract_keywords(description, max_keywords=5)
@@ -69,7 +68,6 @@ class VisualModel:
                     return keywords
             except Exception as e:
                 print(f"⚠️ 云端分类失败，使用 jieba 分词: {e}")
-        # 兜底用 jieba
         skip_words = {
             "一只", "一个", "一条", "一张", "一片", "这个", "那个", "这些", "那些",
             "的", "了", "在", "是", "有", "和", "与", "它", "他", "她", "我", "你",
