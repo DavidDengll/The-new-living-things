@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+entropy_memory.db
+emotion_state.json
