@@ -1,3 +1,5 @@
 zhipuai
 jieba
 duckduckgo_search
+gymnasium
+numpy
