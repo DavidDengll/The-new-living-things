@@ -5,7 +5,6 @@ import random
 import time
 import datetime
 import re
-import json
 
 class Thinker:
     def __init__(self, memory_system, memory_influence_prob=None, word_insert_prob=None):
@@ -45,7 +44,7 @@ class Thinker:
             return []
 
     def _learn_and_answer(self, keyword, search_results, question=""):
-        """一次大模型调用，同时完成总结和解答"""
+        """一次大模型调用，同时完成总结和解答。使用宽松的纯文本格式避免 JSON 解析失败。"""
         if not search_results:
             return {"summary": None, "answer": None}
 
@@ -60,16 +59,17 @@ class Thinker:
 1. 用一句话（不超过15个字）总结「{keyword}」的核心特征
 2. 回答以下问题：{question}
 
-请严格按以下JSON格式返回（不要其他内容）：
-{{"summary":"一句话特征总结","answer":"问题的完整解答（含推理过程）"}}"""
+请按以下格式回复：
+总结：（你的总结）
+答案：（你的答案）"""
         else:
             prompt = f"""我搜索了「{keyword}」，以下是搜索结果：
 {search_text}
 
 请用一句话（不超过15个字）总结「{keyword}」的核心特征。
 
-请严格按以下JSON格式返回（不要其他内容）：
-{{"summary":"一句话特征总结","answer":""}}"""
+请按以下格式回复：
+总结：（你的总结）"""
 
         try:
             response = self.client.chat.completions.create(
@@ -78,23 +78,34 @@ class Thinker:
                 temperature=0.3,
                 max_tokens=500
             )
-            result_text = response.choices[0].message.content.strip()
-            result_text = re.sub(r'^```(?:json)?\s*\n?', '', result_text)
-            result_text = re.sub(r'\n?```$', '', result_text)
+            result_text = response.choices[0].message.content
+            if result_text is None:
+                print(f"⚠️ 大模型返回 None")
+                return {"summary": None, "answer": None}
 
-            json_match = re.search(r'\{.*\}', result_text, re.DOTALL)
-            if json_match:
-                result = json.loads(json_match.group())
-                summary = result.get("summary", "")
-                answer = result.get("answer", "")
-                if summary:
-                    print(f"📝 学习结果: {summary}")
-                if answer:
-                    print(f"💡 附带解答: {answer[:120]}...")
-                return {"summary": summary, "answer": answer}
+            result_text = result_text.strip()
+            if not result_text:
+                print(f"⚠️ 大模型返回空内容")
+                return {"summary": None, "answer": None}
 
-            print(f"⚠️ JSON 解析失败，当作纯文本")
-            return {"summary": result_text[:100], "answer": result_text}
+            # 解析纯文本格式
+            summary = ""
+            answer = ""
+            summary_match = re.search(r'总结[：:]\s*(.*)', result_text)
+            answer_match = re.search(r'答案[：:]\s*(.*)', result_text)
+            if summary_match:
+                summary = summary_match.group(1).strip()
+                print(f"📝 学习结果: {summary}")
+            if answer_match:
+                answer = answer_match.group(1).strip()
+                print(f"💡 附带解答: {answer[:120]}...")
+
+            # 如果解析失败，尝试把整段文本当作总结
+            if not summary and not answer:
+                print(f"⚠️ 格式解析失败，使用原始文本作为总结")
+                summary = result_text[:100]
+
+            return {"summary": summary, "answer": answer}
 
         except Exception as e:
             print(f"❌ 学习解答失败: {e}")
