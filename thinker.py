@@ -16,6 +16,7 @@ class Thinker:
         self._search_cache = {}
 
     def _web_search(self, keyword):
+        """联网搜索，一天内相同关键词只搜一次"""
         today = datetime.date.today().isoformat()
         if keyword in self._search_cache:
             if self._search_cache[keyword] == today:
@@ -44,7 +45,10 @@ class Thinker:
             return []
 
     def _learn_and_answer(self, keyword, search_results, question=""):
-        """一次大模型调用，同时完成总结和解答。使用宽松的纯文本格式避免 JSON 解析失败。"""
+        """
+        一次大模型调用，同时完成总结和解答。
+        使用纯文本格式（总结：... 答案：...）避免 JSON 解析失败。
+        """
         if not search_results:
             return {"summary": None, "answer": None}
 
@@ -112,6 +116,7 @@ class Thinker:
             return {"summary": None, "answer": None}
 
     def _mosaic_generate(self, length):
+        """从记忆碎片中拼接新词"""
         fragments = []
         for _ in range(3):
             frag = self.memory.get_random_fragment(min_len=1, max_len=3)
@@ -128,6 +133,11 @@ class Thinker:
             return mosaic + padding
 
     def think(self, keyword, visual_summary, hint=None, question="", skip_thoughts=False):
+        """
+        主思考方法。
+        - 先查记忆，不认识则联网搜索并学习。
+        - 如果 skip_thoughts=True，则不生成随机念头（仅用于解答者已附带答案的情况）。
+        """
         # ===== 第一部分：记忆查询 + 联网学习（始终执行） =====
         found = self.memory.search(keyword)
         if found:
@@ -188,6 +198,7 @@ class Thinker:
                     raw_sentences.append(fragment)
                     continue
 
+            # 兜底：纯随机字母
             chars = []
             for _ in range(length):
                 if true_random_bool(self.memory_influence_prob):
@@ -207,6 +218,7 @@ class Thinker:
         }
 
     def generate_raw_thought(self, length=5):
+        """生成一个简短的原始念头（用于沉默时的内心闪过）"""
         if true_random_bool(MOSAIC_PROB):
             mosaic = self._mosaic_generate(length)
             if mosaic:
