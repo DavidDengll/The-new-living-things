@@ -1,17 +1,10 @@
 # planner.py
-from zhipuai import ZhipuAI
-from config import ZHIPU_API_KEY, ZHIPU_MODEL_NAME
+from model_provider import get_provider
 import json
 import re
 import time
 
-
 class Planner:
-    """
-    意图规划器：分析解答者或思考者说出的话，推理出意图并拆解为具体动作步骤。
-    先通过本地规则过滤，只有包含物理动作词时才调用大模型做精细拆解。
-    """
-
     ACTION_VERBS = {
         "移动", "走", "跑", "跳", "爬", "前进", "后退", "转", "停",
         "抓", "拿", "放", "推", "拉", "举", "搬", "扔", "抛", "取", "递",
@@ -35,10 +28,7 @@ class Planner:
     }
 
     def __init__(self):
-        if not ZHIPU_API_KEY or ZHIPU_API_KEY == "你的真实API-KEY":
-            raise ValueError("请在 config.py 或环境变量中设置有效的 ZHIPU_API_KEY")
-        self.client = ZhipuAI(api_key=ZHIPU_API_KEY)
-        self.model_name = ZHIPU_MODEL_NAME
+        self.provider = get_provider()
 
     def _has_physical_action(self, text):
         return any(verb in text for verb in self.ACTION_VERBS)
@@ -46,31 +36,11 @@ class Planner:
     def _sort_actions(self, actions):
         return sorted(actions, key=lambda x: self.ACTION_ORDER.get(x.get("action", ""), 99))
 
-    def _parse_actions_from_response(self, result_text):
-        json_text = self._clean_json_text(result_text)
-        json_match = re.search(r'\{.*\}', json_text, re.DOTALL)
-        if not json_match:
-            return None, None, None
-
-        try:
-            result = json.loads(json_match.group())
-            intent = result.get("intent", "")
-            actions = result.get("actions", [])
-            status = result.get("status", "success")
-            return intent, actions, status
-        except json.JSONDecodeError:
-            return None, None, None
-
     def plan(self, text, scene_description=""):
         print(f"🔧 规划者正在分析: {text}")
-
         if not self._has_physical_action(text):
             print(f"📋 规则判断：无需物理动作，跳过 API 调用")
-            return {
-                "intent": "无需物理动作",
-                "actions": [],
-                "status": "no_physical_action"
-            }
+            return {"intent": "无需物理动作", "actions": [], "status": "no_physical_action"}
 
         for attempt in range(2):
             try:
@@ -86,41 +56,41 @@ class Planner:
 
 注意：actions 列表中的每个元素不需要包含 step 字段，只需要 action、target、reason。status 为 success 表示可以执行，cannot_execute 表示无法执行。"""
 
-                response = self.client.chat.completions.create(
-                    model=self.model_name,
+                result_text = self.provider.chat(
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.3,
                     max_tokens=500
                 )
-                result_text = response.choices[0].message.content.strip()
-                intent, actions, status = self._parse_actions_from_response(result_text)
-
-                if actions:
-                    actions = self._sort_actions(actions)
-                    print(f"🎯 意图: {intent} | 动作: {len(actions)} 步 | 状态: {status}")
-                    return {"intent": intent, "actions": actions, "status": status or "success"}
-
-                if attempt == 0:
-                    print(f"⚠️ 解析结果为空，重试中...")
+                if not result_text:
                     continue
-                else:
-                    print(f"⚠️ 重试后仍为空，返回无法解析")
-                    return {"intent": "无法解析", "actions": [], "status": "cannot_execute"}
 
+                result_text = self._clean_json_text(result_text)
+                json_match = re.search(r'\{.*\}', result_text, re.DOTALL)
+                if json_match:
+                    result = json.loads(json_match.group())
+                    intent = result.get("intent", "")
+                    actions = result.get("actions", [])
+                    status = result.get("status", "success")
+                    if actions:
+                        actions = self._sort_actions(actions)
+                        print(f"🎯 意图: {intent} | 动作: {len(actions)} 步 | 状态: {status}")
+                        return {"intent": intent, "actions": actions, "status": status}
+                if attempt == 0:
+                    print("⚠️ 解析结果为空，重试中...")
+                else:
+                    print("⚠️ 重试后仍为空，返回无法解析")
+                    return {"intent": "无法解析", "actions": [], "status": "cannot_execute"}
             except Exception as e:
                 if attempt == 0:
                     print(f"⚠️ 规划失败 (第1次): {e}，重试中...")
-                    continue
                 else:
                     print(f"❌ 规划失败 (第2次): {e}")
                     return {"intent": "分析失败", "actions": [], "status": "cannot_execute"}
-
         return {"intent": "分析失败", "actions": [], "status": "cannot_execute"}
 
     def generate_action_prompt(self, action_plan):
         if not action_plan.get("actions"):
             return "无需执行物理动作。"
-
         lines = [f"意图: {action_plan['intent']}", "动作序列:"]
         for i, act in enumerate(action_plan["actions"], 1):
             action = act.get("action", "未知动作")
@@ -132,17 +102,16 @@ class Planner:
         return "\n".join(lines)
 
     def simulate_execution(self, action_plan):
-        if not action_plan.get("actions"):
+        if not action_plan or not action_plan.get("actions"):
             print("📋 无物理动作需要执行。")
             return
-
         print(f"\n🎬 开始模拟执行...")
         for i, act in enumerate(action_plan["actions"], 1):
             action = act.get("action", "未知动作")
             target = act.get("target", "")
             target_str = f" → {target}" if target else ""
             print(f"  [{i}/{len(action_plan['actions'])}] 执行: {action}{target_str}")
-            time.sleep(0.8)
+            time.sleep(0.6)
         print(f"✅ 模拟执行完成。\n")
 
     def _clean_json_text(self, text):

@@ -2,10 +2,23 @@
 import os
 
 # ============================================
-# API 配置
+# 模型提供商配置（通用 OpenAI 兼容接口）
 # ============================================
-ZHIPU_API_KEY = os.environ.get("ZHIPU_API_KEY", "你的真实API-KEY")
-ZHIPU_MODEL_NAME = "glm-4.7-flash"
+# 模型名称（glm-4.7-flash / gpt-4o / deepseek-chat / qwen-turbo 等）
+MODEL_NAME = "glm-4.7-flash"
+
+# API 地址（留空则使用官方默认地址，填写则覆盖）
+# 智谱兼容接口: "https://open.bigmodel.cn/api/paas/v4"
+# DeepSeek: "https://api.deepseek.com/v1"
+# Ollama: "http://localhost:11434/v1"
+# 阿里百灵: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+API_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
+
+# API 密钥
+API_KEY = os.environ.get("LLM_API_KEY", "你的API-Key")
+
+# 可选：自定义请求头（通常不需要）
+API_EXTRA_HEADERS = {}
 
 # ============================================
 # 发言与审查
@@ -31,7 +44,7 @@ IMAGE_PATH = None
 # ============================================
 # 分类器设置
 # ============================================
-USE_CLOUD_CLASSIFIER = True  # 是否使用云端大模型做语义分类
+USE_CLOUD_CLASSIFIER = False  # 是否使用云端大模型做语义分类（默认关闭，用本地分词）
 
 # ============================================
 # 情绪模型参数

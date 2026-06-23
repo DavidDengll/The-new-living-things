@@ -1,4 +1,4 @@
-zhipuai
+openai
 jieba
 duckduckgo_search
 gymnasium

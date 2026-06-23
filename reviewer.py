@@ -1,20 +1,13 @@
 # reviewer.py
-from zhipuai import ZhipuAI
-from config import ZHIPU_API_KEY, ZHIPU_MODEL_NAME, REJECTION_LENIENT_THRESHOLD
+from model_provider import get_provider
+from config import REJECTION_LENIENT_THRESHOLD
 import re
 
 class Reviewer:
-    """
-    语义审查官：调用大模型批量判断念头是否与场景相关。
-    """
-
     def __init__(self, visual_summary, memory_system=None):
         self.visual_summary = visual_summary
         self.memory_system = memory_system
-        if not ZHIPU_API_KEY or ZHIPU_API_KEY == "你的真实API-KEY":
-            raise ValueError("请在 config.py 或环境变量中设置有效的 ZHIPU_API_KEY")
-        self.client = ZhipuAI(api_key=ZHIPU_API_KEY)
-        self.model_name = ZHIPU_MODEL_NAME
+        self.provider = get_provider()
 
     def judge_batch(self, raw_sentences, rejection_streak=0):
         if not raw_sentences:
@@ -82,8 +75,7 @@ class Reviewer:
         max_tokens = min(800, max(200, estimated_tokens))
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model_name,
+            result = self.provider.chat(
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
@@ -91,17 +83,17 @@ class Reviewer:
                 temperature=0.0,
                 max_tokens=max_tokens
             )
-            result = response.choices[0].message.content.strip()
+            if not result:
+                print("❌ 批量审查：大模型返回空")
+                return [(s, 0, "审查失败", "") for s in raw_sentences]
             print(f"📝 审查官原始返回:\n{result}")
             return self._parse_batch_result(result, raw_sentences)
-
         except Exception as e:
             print(f"❌ 批量审查失败: {e}，回退到默认分数0")
             return [(s, 0, "审查失败", "") for s in raw_sentences]
 
     def _parse_batch_result(self, result_text, raw_sentences):
         results = []
-
         blocks = result_text.split("---")
         if len(blocks) < len(raw_sentences):
             blocks = result_text.split("\n\n")
@@ -110,11 +102,9 @@ class Reviewer:
             score = 0
             explanation = "解析失败"
             related_concept = ""
-
             if i < len(blocks):
                 block = blocks[i].strip()
                 lines = [l.strip() for l in block.split("\n") if l.strip()]
-
                 for line in lines:
                     if "|" in line and any(c.isdigit() for c in line):
                         parts = line.split("|")
@@ -135,7 +125,6 @@ class Reviewer:
                     if line != lines[0] and line not in ["无", "解析失败"] and len(line) <= 10:
                         if related_concept == "" and line != explanation:
                             related_concept = line
-
                 if score == 0 and len(lines) > 0:
                     nums = re.findall(r'\d+', lines[0])
                     if nums:
@@ -144,13 +133,10 @@ class Reviewer:
                             explanation = lines[1]
                         if len(lines) > 2:
                             related_concept = lines[2]
-
                 if related_concept == "无":
                     related_concept = ""
-
             score = max(0, min(10, score))
             results.append((sentence, score, explanation, related_concept))
-
         return results
 
     def judge(self, raw_sentence, rejection_streak=0):

@@ -1,8 +1,8 @@
 # vision.py
 import base64
 import os
-from config import ZHIPU_API_KEY, USE_CLOUD_CLASSIFIER
-import jieba
+from config import API_KEY, USE_CLOUD_CLASSIFIER
+from tokenizer import extract_keywords as local_extract_keywords, get_main_subject as local_get_main_subject
 
 class VisualModel:
     def __init__(self, mode="simulate", description=None, image_path=None, classifier=None):
@@ -11,10 +11,10 @@ class VisualModel:
         self.image_path = image_path
         self.classifier = classifier if USE_CLOUD_CLASSIFIER else None
         if self.mode == "real":
-            if not ZHIPU_API_KEY or ZHIPU_API_KEY == "你的真实API-KEY":
-                raise ValueError("真实模式需要有效的 ZHIPU_API_KEY")
-            from zhipuai import ZhipuAI
-            self.client = ZhipuAI(api_key=ZHIPU_API_KEY)
+            if not API_KEY or API_KEY == "你的API-Key":
+                raise ValueError("真实模式需要有效的 API_KEY")
+            from model_provider import get_provider
+            self.provider = get_provider()
             print("✅ 多模态视觉模型已连接（真实模式）")
 
     def see(self):
@@ -34,7 +34,7 @@ class VisualModel:
             img_base64 = base64.b64encode(img_file.read()).decode('utf-8')
         print(f"🖼️ 正在观察图片: {self.image_path} ...")
         try:
-            response = self.client.chat.completions.create(
+            response = self.provider.client.chat.completions.create(
                 model="glm-4v",
                 messages=[{"role": "user", "content": [
                     {"type": "text", "text": "请简单描述这张图片里的主要物体或场景，只返回一句话，不超过15个字。"},
@@ -67,21 +67,8 @@ class VisualModel:
                 if keywords:
                     return keywords
             except Exception as e:
-                print(f"⚠️ 云端分类失败，使用 jieba 分词: {e}")
-        skip_words = {
-            "一只", "一个", "一条", "一张", "一片", "这个", "那个", "这些", "那些",
-            "的", "了", "在", "是", "有", "和", "与", "它", "他", "她", "我", "你",
-            "着", "被", "把", "从", "到", "上", "中", "下", "里", "外", "都", "也", "很", "就", "还",
-            "这", "那", "什么", "怎么", "为什么",
-            "上面", "下面", "里面", "外面", "旁边", "前面", "后面",
-            "非常", "特别", "比较", "更", "最", "太",
-            "正在", "已经", "马上", "刚才", "现在",
-        }
-        words = jieba.lcut(description)
-        keywords = [w for w in words if w.strip() and w not in skip_words]
-        if not keywords:
-            return ["未知"]
-        return keywords[:5]
+                print(f"⚠️ 云端分类失败，使用本地分词: {e}")
+        return local_extract_keywords(description, max_keywords=5)
 
     def get_main_subject(self, description):
         if self.classifier and USE_CLOUD_CLASSIFIER:
@@ -89,7 +76,4 @@ class VisualModel:
                 return self.classifier.get_main_subject(description)
             except:
                 pass
-        keywords = self.extract_keywords(description)
-        if keywords:
-            return keywords[0]
-        return "未知"
+        return local_get_main_subject(description)

@@ -1,27 +1,17 @@
 # classifier.py
-from zhipuai import ZhipuAI
-from config import ZHIPU_API_KEY, ZHIPU_MODEL_NAME
+from model_provider import get_provider
 import json
 import re
 import hashlib
+import jieba
 
 class Classifier:
-    """
-    调用大模型做语义分类：分词、词性标注、记忆匹配。
-    相同文本不重复调用大模型。
-    """
-
     def __init__(self, memory_system=None):
-        if not ZHIPU_API_KEY or ZHIPU_API_KEY == "你的真实API-KEY":
-            raise ValueError("请在 config.py 或环境变量中设置有效的 ZHIPU_API_KEY")
-        self.client = ZhipuAI(api_key=ZHIPU_API_KEY)
-        self.model_name = ZHIPU_MODEL_NAME
+        self.provider = get_provider()
         self.memory_system = memory_system
-        # 分类缓存：{文本哈希: 分类结果}
         self._classify_cache = {}
 
     def classify(self, text):
-        # 检查缓存
         cache_key = hashlib.md5(text.encode()).hexdigest()
         if cache_key in self._classify_cache:
             cached = self._classify_cache[cache_key]
@@ -51,12 +41,10 @@ class Classifier:
 {{"words":[{{"word":"词1","type":"名词"}},{{"word":"词2","type":"动词"}}],"main_subject":"主要描述对象"}}"""
 
         user_prompt = f"文本：{text}"
-
         print(f"🔍 正在分类: {text}")
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model_name,
+            result_text = self.provider.chat(
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
@@ -64,17 +52,16 @@ class Classifier:
                 temperature=0.1,
                 max_tokens=300
             )
-            result_text = response.choices[0].message.content.strip()
-            print(f"📝 分类原始返回: {result_text}")
+            if not result_text:
+                raise ValueError("返回空内容")
 
+            print(f"📝 分类原始返回: {result_text}")
             json_match = re.search(r'\{[^{}]*"words"\s*:\s*\[.*?\]\s*,\s*"main_subject"\s*:\s*"[^"]*"\s*\}', result_text, re.DOTALL)
             if not json_match:
                 json_match = re.search(r'\{.*?\}', result_text, re.DOTALL)
-
             if json_match:
                 clean_json = json_match.group()
                 result = json.loads(clean_json)
-                # 存入缓存（最多 50 条）
                 if len(self._classify_cache) >= 50:
                     oldest_key = list(self._classify_cache.keys())[0]
                     del self._classify_cache[oldest_key]
@@ -82,30 +69,23 @@ class Classifier:
                 return result
             else:
                 raise json.JSONDecodeError("未找到有效JSON", result_text, 0)
-
-        except json.JSONDecodeError:
-            print(f"⚠️ JSON 解析失败，使用兜底分词")
-            result = self._fallback_classify(text)
+        except Exception as e:
+            print(f"⚠️ 分类失败: {e}，使用 jieba 兜底")
+            fallback = self._fallback_classify(text)
             if len(self._classify_cache) >= 50:
                 oldest_key = list(self._classify_cache.keys())[0]
                 del self._classify_cache[oldest_key]
-            self._classify_cache[cache_key] = result
-            return result
-        except Exception as e:
-            print(f"❌ 分类失败: {e}")
-            result = self._fallback_classify(text)
-            return result
+            self._classify_cache[cache_key] = fallback
+            return fallback
 
     def _fallback_classify(self, text):
-        words = []
-        for sep in "，。！？、；： ":
-            text = text.replace(sep, " ")
-        segments = text.split()
-        for seg in segments:
-            if seg.strip():
-                words.append({"word": seg.strip(), "type": "名词"})
-        main_subject = words[0]["word"] if words else "未知"
-        return {"words": words, "main_subject": main_subject}
+        words = jieba.lcut(text)
+        skip_words = {"的", "了", "在", "是", "有", "它", "这", "那", "什么", "怎么", "为什么", "吗", "呢", "吧", "啊", "一只", "一个", "一条", "这个", "那个", "这些", "那些"}
+        filtered = [{"word": w, "type": "名词"} for w in words if w not in skip_words and w.strip()]
+        if not filtered:
+            filtered = [{"word": "未知", "type": "名词"}]
+        main_subject = filtered[0]["word"]
+        return {"words": filtered, "main_subject": main_subject}
 
     def extract_keywords(self, text, max_keywords=5):
         result = self.classify(text)

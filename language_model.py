@@ -1,16 +1,12 @@
 # language_model.py
-from zhipuai import ZhipuAI
-from config import ZHIPU_API_KEY, ZHIPU_MODEL_NAME
+from model_provider import get_provider
 import random
 import time
 import hashlib
 
 class LanguageModel:
     def __init__(self):
-        if not ZHIPU_API_KEY or ZHIPU_API_KEY == "你的真实API-KEY":
-            raise ValueError("请在 config.py 或环境变量中设置有效的 ZHIPU_API_KEY")
-        self.client = ZhipuAI(api_key=ZHIPU_API_KEY)
-        self.model_name = ZHIPU_MODEL_NAME
+        self.provider = get_provider()
         self.fallback_templates = [
             "我看着眼前的一切，陷入了沉思。",
             "今天的感觉有点不一样。",
@@ -18,17 +14,14 @@ class LanguageModel:
             "我需要再观察一会儿。",
             "这个世界总是充满意外。"
         ]
-        # 回复缓存：{场景哈希: 回复文本}
         self._response_cache = {}
 
     def _get_cache_key(self, visual_summary, mood=None):
-        """生成缓存键"""
         mood_str = str(mood) if mood else ""
         raw = f"{visual_summary}|{mood_str}"
         return hashlib.md5(raw.encode()).hexdigest()
 
     def generate_response(self, visual_summary, mood=None):
-        # 检查缓存
         cache_key = self._get_cache_key(visual_summary, mood)
         if cache_key in self._response_cache:
             cached = self._response_cache[cache_key]
@@ -41,8 +34,7 @@ class LanguageModel:
 
         for retry in range(2):
             try:
-                response = self.client.chat.completions.create(
-                    model=self.model_name,
+                result = self.provider.chat(
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
@@ -50,23 +42,16 @@ class LanguageModel:
                     temperature=0.7,
                     max_tokens=100
                 )
-
-                if response and response.choices and len(response.choices) > 0:
-                    llm_output = response.choices[0].message.content
-                    if llm_output is not None and isinstance(llm_output, str):
-                        llm_output = llm_output.strip()
-                        if llm_output and len(llm_output) > 0:
-                            print(f"✅ 大模型回复: {llm_output}")
-                            # 存入缓存（最多 50 条）
-                            if len(self._response_cache) >= 50:
-                                oldest_key = list(self._response_cache.keys())[0]
-                                del self._response_cache[oldest_key]
-                            self._response_cache[cache_key] = llm_output
-                            return llm_output
+                if result:
+                    print(f"✅ 大模型回复: {result}")
+                    if len(self._response_cache) >= 50:
+                        oldest_key = list(self._response_cache.keys())[0]
+                        del self._response_cache[oldest_key]
+                    self._response_cache[cache_key] = result
+                    return result
 
                 print(f"⚠️ 大模型返回空内容 (第{retry+1}次)，尝试重试...")
                 time.sleep(1)
-
             except Exception as e:
                 print(f"❌ 大模型调用失败 (第{retry+1}次): {e}")
                 time.sleep(1)
@@ -82,18 +67,13 @@ class LanguageModel:
         prompt = f"我看到一个不认识的物体叫「{unknown_keyword}」，请用一个好奇的简单问句问我它是什么，只用一句话。一定要回复，不要留空。"
         for retry in range(2):
             try:
-                response = self.client.chat.completions.create(
-                    model=self.model_name,
+                result = self.provider.chat(
                     messages=[{"role": "user", "content": prompt}],
                     temperature=0.8,
                     max_tokens=50
                 )
-                if response and response.choices and len(response.choices) > 0:
-                    question = response.choices[0].message.content
-                    if question is not None and isinstance(question, str):
-                        question = question.strip()
-                        if question and len(question) > 0:
-                            return question
+                if result:
+                    return result
                 time.sleep(1)
             except Exception:
                 time.sleep(1)
