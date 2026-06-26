@@ -60,7 +60,41 @@
 
 ## 模块说明
 
-整个项目包含以下核心模块：`randomness.py` 负责从操作系统熵池提取真随机数；`memory.py` 实现三层记忆系统并用 SQLite 持久化；`emotion.py` 管理情绪模型，状态可保存；`vision.py` 支持三种输入模式的视觉模型；`classifier.py` 提供云端语义分类器并带缓存；`thinker.py` 是思考者，负责四层生成策略和联网学习；`reviewer.py` 是语义审查官，进行批量审查；`language_model.py` 作为大模型外壳并有本地兜底；`solver.py` 实现类比推理的解答者；`planner.py` 负责意图拆解；`model_provider.py` 统一模型调用接口；`virtual_env.py` 提供虚拟环境；`test_virtual.py` 用于自动测试；`main.py` 整合所有模块，是主系统入口。
+### 整个项目包含以下核心模块
+
+ 1. randomness.py : 用于从操作系统熵池中提取真随机数;
+
+ 2. memory.py : 用于实现生成记忆系统并用本地储存也就是SQLite持久化;
+
+ 3. emotion.py:管理情绪模型，状态可保存;
+
+ 4. vision.py :支持三种输入模式的视觉模型;
+
+ 5. classifier.py : 提供云端语义分类器并带缓存;
+
+ 6. thinker.py : 是思考者，负责四层生成策略和联网学习;
+
+ 7. reviewer.py : 是语义审查官，进行批量审查;
+
+ 8. language_model.py : 作为大模型外壳并有本地兜底;
+
+ 9. solver.py : 实现类比推理的解答者;
+
+ 10. planner.py : 负责意图拆解;
+
+ 11. model_provider.py : 统一模型调用接口;
+
+ 12. virtual_env.py : 提供虚拟环境;
+
+ 13. test_virtual.py : 用于自动测试;
+
+ 14. utils.py : 用于解析审查者大模型返回回来的东西;
+
+ 15. config.py ：全局配置文件;
+
+ 16. tokenizer.py ：本地中文分词器;
+
+ 17. main.py : 综合所有模块,程序主入口;
 
 ## 使用指南
 
@@ -109,3 +143,5 @@
 ### 2026-06-13 更新：增加自然语言虚拟环境
 
 ### 2026-06-23 更新：把API调用不止于Zhipu
+
+### 2026-06-23 更新： API提示词优化，加入文本解析，优化记忆系统,优化审查者
