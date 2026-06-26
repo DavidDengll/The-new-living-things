@@ -1,7 +1,7 @@
 # reviewer.py
 from model_provider import get_provider
 from config import REJECTION_LENIENT_THRESHOLD
-import re
+from utils import clean_and_parse_json
 
 class Reviewer:
     def __init__(self, visual_summary, memory_system=None):
@@ -13,6 +13,7 @@ class Reviewer:
         if not raw_sentences:
             return []
 
+        # 构建记忆上下文
         memory_context = ""
         if self.memory_system:
             keywords = [w.strip() for w in self.visual_summary.replace("，", " ").replace("。", " ").split() if len(w.strip()) >= 1]
@@ -41,11 +42,6 @@ class Reviewer:
         system_prompt = f"""你是一个严格但公正的语义审查官。
 你的任务是批量判断多个"内心念头"是否和当前看到的场景有语义关联。
 
-对每个念头，给出：
-1. 0~10的整数分数
-2. 一句话解释
-3. 从相关概念中选一个最相关的概念名（如果没有就写"无"）
-
 评分标准：
 - 0分：完全无关，纯随机乱码
 - 1~3分：有微弱关联
@@ -57,89 +53,62 @@ class Reviewer:
 
 {memory_context}
 
-请严格按以下格式回复（每个念头三行，念头之间用---分隔）：
-念头序号|分数
-解释
-最相关概念
----
-念头序号|分数
-解释
-最相关概念"""
+【严格要求】请只返回一个 JSON 数组，不要包含任何其他文字、注释或 Markdown 标记。
+数组中的每个元素对应一个念头的审查结果，顺序与输入的念头顺序一致。
+格式如下：
+[
+  {{"score": 分数(整数), "explanation": "解释", "concept": "最相关概念"}},
+  ...
+]
+"""
 
         user_prompt = f"当前场景：{self.visual_summary}\n待审查的念头：\n{sentences_text}"
 
         print(f"⚖️ 批量审查 {len(raw_sentences)} 个念头...")
 
-        prompt_length = len(system_prompt) + len(user_prompt) + len(sentences_text)
-        estimated_tokens = prompt_length // 2 + 200
-        max_tokens = min(800, max(200, estimated_tokens))
-
         try:
-            result = self.provider.chat(
+            result_text = self.provider.chat(
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
                 temperature=0.0,
-                max_tokens=max_tokens
+                max_tokens=800
             )
-            if not result:
+            if not result_text:
                 print("❌ 批量审查：大模型返回空")
                 return [(s, 0, "审查失败", "") for s in raw_sentences]
-            print(f"📝 审查官原始返回:\n{result}")
-            return self._parse_batch_result(result, raw_sentences)
+
+            print(f"📝 审查官原始返回:\n{result_text[:300]}...")
+            parsed = clean_and_parse_json(result_text)
+
+            if parsed and isinstance(parsed, list):
+                results = []
+                for i, item in enumerate(parsed):
+                    if i >= len(raw_sentences):
+                        break
+                    score = item.get("score", 0)
+                    if not isinstance(score, (int, float)):
+                        score = 0
+                    score = max(0, min(10, int(score)))
+                    explanation = item.get("explanation", "解析成功")
+                    concept = item.get("concept", "")
+                    results.append((raw_sentences[i], score, explanation, concept))
+
+                # 如果返回数量对不上，补全
+                while len(results) < len(raw_sentences):
+                    results.append((raw_sentences[len(results)], 0, "数据缺失", ""))
+                return results
+            else:
+                print(f"⚠️ 解析返回格式错误，预期数组，得到: {result_text[:100]}")
+                return [(s, 0, "格式错误", "") for s in raw_sentences]
+
         except Exception as e:
-            print(f"❌ 批量审查失败: {e}，回退到默认分数0")
-            return [(s, 0, "审查失败", "") for s in raw_sentences]
-
-    def _parse_batch_result(self, result_text, raw_sentences):
-        results = []
-        blocks = result_text.split("---")
-        if len(blocks) < len(raw_sentences):
-            blocks = result_text.split("\n\n")
-
-        for i, sentence in enumerate(raw_sentences):
-            score = 0
-            explanation = "解析失败"
-            related_concept = ""
-            if i < len(blocks):
-                block = blocks[i].strip()
-                lines = [l.strip() for l in block.split("\n") if l.strip()]
-                for line in lines:
-                    if "|" in line and any(c.isdigit() for c in line):
-                        parts = line.split("|")
-                        for part in parts:
-                            nums = re.findall(r'\d+', part)
-                            if nums:
-                                score = float(nums[0])
-                                break
-                    elif line.isdigit() and len(line) <= 2:
-                        score = float(line)
-                    elif "分" in line and any(c.isdigit() for c in line):
-                        nums = re.findall(r'\d+', line)
-                        if nums:
-                            score = float(nums[0])
-                    elif len(line) > 3 and not line.startswith("念头"):
-                        if explanation == "解析失败":
-                            explanation = line
-                    if line != lines[0] and line not in ["无", "解析失败"] and len(line) <= 10:
-                        if related_concept == "" and line != explanation:
-                            related_concept = line
-                if score == 0 and len(lines) > 0:
-                    nums = re.findall(r'\d+', lines[0])
-                    if nums:
-                        score = float(nums[0])
-                        if len(lines) > 1:
-                            explanation = lines[1]
-                        if len(lines) > 2:
-                            related_concept = lines[2]
-                if related_concept == "无":
-                    related_concept = ""
-            score = max(0, min(10, score))
-            results.append((sentence, score, explanation, related_concept))
-        return results
+            print(f"❌ 批量审查失败: {e}")
+            return [(s, 0, "审查异常", "") for s in raw_sentences]
 
     def judge(self, raw_sentence, rejection_streak=0):
+        """单条审查，复用 judge_batch"""
         results = self.judge_batch([raw_sentence], rejection_streak)
         if results:
             _, score, explanation, concept = results[0]

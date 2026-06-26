@@ -5,13 +5,16 @@
 """
 
 from openai import OpenAI
-from config import MODEL_NAME, API_BASE_URL, API_KEY, API_EXTRA_HEADERS
+from config import MODEL_NAME, API_BASE_URL, API_KEY, API_EXTRA_HEADERS, validate_config
 
 
 class ModelProvider:
     """统一的模型调用客户端"""
 
     def __init__(self):
+        # 【新增】启动时立刻校验 Key
+        validate_config()
+
         kwargs = {"api_key": API_KEY}
         if API_BASE_URL:
             kwargs["base_url"] = API_BASE_URL

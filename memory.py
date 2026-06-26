@@ -90,14 +90,15 @@ class MemorySystem:
     def _extract_keywords(self, text):
         """从文本中提取关键词，用于特征合并"""
         words = jieba.lcut(text)
-        # 保留名词、动词、形容词，过滤掉停用词
         skip_words = {"的", "了", "在", "是", "有", "它", "这", "那", "什么", "怎么", "为什么", "吗", "呢", "吧", "啊", "一只", "一个", "一条", "这个", "那个", "这些", "那些", "上面", "下面", "里面", "外面", "非常", "特别", "比较", "更", "最", "太", "正在", "已经", "马上", "刚才", "现在"}
         keywords = [w for w in words if w not in skip_words and len(w.strip()) >= 1]
-        # 去重
         return list(set(keywords))
 
     def add_short(self, name, feature):
         """添加短期记忆，如果同名记忆已存在则合并特征"""
+        # 【修复】添加新记忆前先清理过期记忆
+        self._cleanup()
+
         cursor = self.conn.cursor()
         today = self._today()
 
@@ -105,7 +106,6 @@ class MemorySystem:
         cursor.execute("SELECT id, feature, level FROM memories WHERE name=?", (name,))
         existing = cursor.fetchone()
         if existing:
-            # 合并特征：提取新旧特征关键词，合并去重后取前5个
             old_feature = existing[1] if existing[1] else ""
             old_keywords = self._extract_keywords(old_feature)
             new_keywords = self._extract_keywords(feature)
@@ -117,7 +117,6 @@ class MemorySystem:
             print(f"🔄 特征合并: {name} → {merged_feature}")
             return
 
-        # 不存在则插入新记录
         cursor.execute("INSERT INTO memories (name, feature, level, created) VALUES (?,?,?,?)",
                        (name, feature, 'short', today))
         self.conn.commit()

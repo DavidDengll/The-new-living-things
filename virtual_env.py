@@ -94,13 +94,14 @@ class VirtualEnvironment:
           - "抓取苹果" / "捡起石头"
           - "放下苹果" / "把苹果放下"
           - "观察周围" / "看看附近"
+          - "吃苹果" / "喝牛奶"（新增）
         """
         action_text = action_text.strip()
         self.action_history.append(action_text)
         success = True
         feedback = ""
 
-        # 严格方向解析：先检查是否包含复合方向词，再检查单一方向
+        # 严格方向解析
         direction = self._parse_direction(action_text)
 
         if direction:
@@ -142,6 +143,28 @@ class VirtualEnvironment:
                 feedback = "面前没有任何东西可以抓"
             return self._build_scene_with_feedback(feedback), success
 
+        # 【新增】吃/喝动作（消耗掉当前格子的物品，或吃掉背包里的）
+        if any(w in action_text for w in ["吃", "喝", "品尝"]):
+            target = self._extract_target(action_text)
+            cur = (self.agent_pos[0], self.agent_pos[1])
+            # 1. 先看脚下有没有
+            if cur in self.items:
+                item = self.items[cur]
+                if not target or target == item["name"]:
+                    del self.items[cur]
+                    self.action_history.append(f"吃掉了 {item['name']}")
+                    feedback = f"你吃掉了{item['name']}，味道不错！"
+                    return self._build_scene_with_feedback(feedback), True
+            # 2. 再看背包里有没有
+            if target and target in self.inventory:
+                self.inventory.remove(target)
+                self.action_history.append(f"吃掉了背包里的 {target}")
+                feedback = f"你从背包里拿出{target}吃掉了"
+                return self._build_scene_with_feedback(feedback), True
+            # 3. 没有可吃的
+            feedback = f"没有找到可以吃的东西" if not target else f"没有{target}可以吃"
+            return self._build_scene_with_feedback(feedback), False
+
         # 放下动作
         if any(w in action_text for w in ["放", "丢", "扔", "给"]):
             target = self._extract_target(action_text)
@@ -150,7 +173,6 @@ class VirtualEnvironment:
                 cur = (self.agent_pos[0], self.agent_pos[1])
                 if cur not in self.items:
                     feature = self._get_feature_by_name(target)
-                    # 保留原 UID 不变
                     self.items[cur] = {"name": target, "feature": feature, "uid": self._next_uid}
                     self._next_uid += 1
                     self.action_history.append(f"放下了 {target}")
@@ -180,7 +202,7 @@ class VirtualEnvironment:
 
     def _parse_direction(self, text):
         """严格解析方向词，避免误判"""
-        # 复合方向词（必须最先检查）
+        # 复合方向词（忽略，暂不支持对角线）
         compound = {
             ("东北", "NE"): (-1, 1),
             ("西北", "NW"): (-1, -1),
@@ -189,9 +211,8 @@ class VirtualEnvironment:
         }
         for (cn_key, en_key), vec in compound.items():
             if cn_key in text or en_key.upper() in text.upper():
-                return None  # 暂时不支持对角线，返回 None 不执行移动
+                return None  # 暂不支持
 
-        # 单一方向词
         single = {
             ("向北", "往上", "朝北", "北", "up", "north"): (-1, 0),
             ("向南", "往下", "朝南", "南", "down", "south"): (1, 0),

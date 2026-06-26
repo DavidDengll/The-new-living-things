@@ -71,3 +71,18 @@ MEMORY_INFLUENCE_PROB = 0.4
 WORD_INSERT_PROB = 0.3
 MOSAIC_PROB = 0.5
 HINT_USE_PROB = 0.7
+
+
+# ============================================
+# 【新增】启动配置校验
+# ============================================
+def validate_config():
+    """启动前检查配置，避免认证错误时抛出莫名其妙的异常"""
+    if API_KEY == "你的API-Key" or API_KEY is None or API_KEY == "":
+        raise ValueError(
+            "❌ 检测到 API_KEY 未配置！\n"
+            "请打开 config.py，将 API_KEY 替换为你自己的密钥，\n"
+            "或者设置环境变量 LLM_API_KEY。\n"
+            "如果你用的是智谱，去 https://open.bigmodel.cn 注册获取。"
+        )
+    print("✅ 配置校验通过")
