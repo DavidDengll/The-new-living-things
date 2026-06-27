@@ -1,5 +1,5 @@
 openai
 jieba
-duckduckgo_search
+ddgs
 gymnasium
 numpy

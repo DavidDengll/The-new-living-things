@@ -23,9 +23,13 @@ class Thinker:
                 return []
         print(f"🌐 正在联网搜索: {keyword}")
         try:
-            from duckduckgo_search import DDGS
+            # 【修复】使用新包名 ddgs
+            from ddgs import DDGS
             results = []
-            with DDGS() as ddgs:
+            # 添加 User-Agent 伪装，降低被屏蔽概率
+            with DDGS(headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }) as ddgs:
                 search_results = list(ddgs.text(keyword, max_results=3))
                 for r in search_results:
                     title = r.get("title", "")
@@ -39,6 +43,9 @@ class Thinker:
             else:
                 print(f"⚠️ 搜索无结果")
                 return []
+        except ImportError:
+            print("⚠️ 未安装 ddgs，请运行: pip install ddgs")
+            return []
         except Exception as e:
             print(f"❌ 搜索失败: {e}")
             return []
