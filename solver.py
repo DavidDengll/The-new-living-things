@@ -9,8 +9,19 @@ class Solver:
         self.provider = get_provider()
         self.memory_system = memory_system
 
-    def solve(self, question, scene_description=""):
+    def solve(self, question, scene_description="", hint=None):
+        # 清理 hint（如果为空或太短，则丢弃）
+        if hint and isinstance(hint, str):
+            hint = hint.strip()
+            if len(hint) < 2:
+                hint = None
+        else:
+            hint = None
+
         print(f"🤔 解答者正在思考: {question}")
+        if hint:
+            print(f"💡 带着 hint 推理: {hint}")
+
         related_memories = self._retrieve_related_memories(question, scene_description)
 
         if len(related_memories) < 2:
@@ -19,7 +30,7 @@ class Solver:
             if web_knowledge:
                 related_memories.append({"name": "网络知识", "feature": " ".join(web_knowledge[:2])})
 
-        answer = self._generate_with_analogies(question, related_memories, scene_description)
+        answer = self._generate_with_analogies(question, related_memories, scene_description, hint)
         if not answer.get("answer") or not answer["answer"].strip():
             answer["answer"] = "抱歉，我暂时无法解答这个问题。"
             answer["analogies"] = answer.get("analogies", [])
@@ -51,10 +62,12 @@ class Solver:
 
     def _web_search_if_needed(self, question):
         try:
-            from duckduckgo_search import DDGS
+            from ddgs import DDGS
             print(f"🌐 正在联网搜索: {question}")
             results = []
-            with DDGS() as ddgs:
+            with DDGS(headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }) as ddgs:
                 search_results = list(ddgs.text(question, max_results=3))
                 for r in search_results:
                     body = r.get("body", "")
@@ -62,13 +75,13 @@ class Solver:
                         results.append(body)
             return results
         except ImportError:
-            print("⚠️ 未安装 duckduckgo_search，跳过联网搜索")
+            print("⚠️ 未安装 ddgs，跳过联网搜索")
             return []
         except Exception as e:
             print(f"⚠️ 联网搜索失败: {e}")
             return []
 
-    def _generate_with_analogies(self, question, related_memories, scene_description=""):
+    def _generate_with_analogies(self, question, related_memories, scene_description="", hint=None):
         memory_text = ""
         if related_memories:
             lines = []
@@ -78,8 +91,11 @@ class Solver:
             memory_text = "相关知识：\n" + "\n".join(lines)
 
         scene_text = f"当前场景：{scene_description}\n" if scene_description else ""
-        prompt_body = f"""{scene_text}{memory_text}
+        hint_text = f"\n【内部念头提示】{hint}\n" if hint else ""
+
+        prompt_body = f"""{scene_text}{memory_text}{hint_text}
 问题：{question}"""
+
         estimated_prompt_tokens = len(prompt_body) // 2
         dynamic_max_tokens = min(800, max(300, estimated_prompt_tokens + 400))
 

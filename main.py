@@ -11,9 +11,11 @@ from randomness import true_random_byte
 from config import (
     SPEAK_THRESHOLD, MIN_MEANING_SCORE, MAX_RETRIES, CURIOSITY_THRESHOLD,
     VISION_MODE, SCENE_DESCRIPTION, IMAGE_PATH,
-    REJECTION_BONUS_MAX, REJECTION_BONUS_PER_STREAK, USE_CLOUD_CLASSIFIER
+    REJECTION_BONUS_MAX, REJECTION_BONUS_PER_STREAK, USE_CLOUD_CLASSIFIER,
+    USE_CLOUD_ENCODER
 )
 import random
+import datetime
 
 if USE_CLOUD_CLASSIFIER:
     from classifier import Classifier
@@ -22,8 +24,7 @@ class ConsciousnessSystem:
     def __init__(self, vision_mode=None, scene_description=None, image_path=None,
                  speak_threshold=None, min_meaning_score=None, max_retries=None,
                  curiosity_threshold=None):
-        print(f"⚙️ 初始化视觉感知器 (模式: {vision_mode or VISION_MODE})...")
-
+        print(f"⚙️ 初始化系统 (视觉模式: {vision_mode or VISION_MODE})")
         self.memory = MemorySystem()
         self._seed_initial_memories()
 
@@ -58,6 +59,13 @@ class ConsciousnessSystem:
 
         self.rejection_streak = 0
         self.review_cache = {}
+        self.last_final_output = ""
+
+        # 打印编码模式
+        if USE_CLOUD_ENCODER:
+            print("☁️ 编码模式: 云端大模型")
+        else:
+            print("🖥️ 编码模式: 本地 GPU/CPU")
 
     def _seed_initial_memories(self):
         import sqlite3
@@ -75,7 +83,6 @@ class ConsciousnessSystem:
             return
         if final_score < 0:
             self.current_threshold = min(0.9, self.current_threshold + 0.05)
-            print(f"📈 动态阈值（惩罚）: {self.current_threshold:.2f}")
             return
         self.score_history.append(final_score)
         if len(self.score_history) > self.history_size:
@@ -88,7 +95,6 @@ class ConsciousnessSystem:
                 self.current_threshold = min(0.9, self.base_threshold + 0.15)
             else:
                 self.current_threshold = self.base_threshold
-            print(f"📈 动态阈值: {self.current_threshold:.2f}")
 
     def should_speak(self, mood, rejection_bonus=0.0):
         curiosity = mood.get("curiosity", 0.5)
@@ -103,9 +109,7 @@ class ConsciousnessSystem:
         scene_key = hashlib.md5(scene.encode()).hexdigest()[:8]
         if scene_key in self.review_cache:
             if sentence in self.review_cache[scene_key]:
-                cached = self.review_cache[scene_key][sentence]
-                print(f"📦 使用缓存审查结果: {cached[0]}/10")
-                return cached
+                return self.review_cache[scene_key][sentence]
         return None
 
     def _set_cached_review(self, scene, sentence, score, explanation, concept):
@@ -125,31 +129,78 @@ class ConsciousnessSystem:
         scene = self.visual.see()
         print(f"👁️ 看到: {scene}")
 
-        keywords = self.visual.extract_keywords(scene)
-        main_subject = self.visual.get_main_subject(scene)
-        print(f"🔑 关键词: {keywords} | 主要对象: {main_subject}")
+        # ----- 双模编码 -----
+        try:
+            scene_vector = self.visual.encode(scene)
+            print(f"✅ 场景编码完成 (384维向量)")
+        except Exception as e:
+            print(f"⚠️ 编码失败: {e}，使用降级方案")
+            scene_vector = None
 
-        primary_keyword = main_subject if main_subject and main_subject != "未知" else (keywords[0] if keywords else "未知")
+        # 静默思考阶段（优先用向量，否则用关键词）
+        if scene_vector is not None and hasattr(self.thinker, 'generate_raw_thought_from_vector'):
+            raw_thought = self.thinker.generate_raw_thought_from_vector(
+                seed_vector=scene_vector,
+                length=random.randint(3, 8)
+            )
+        else:
+            # 降级：用关键词作为种子
+            keywords = self.visual.extract_keywords(scene)
+            main_subject = self.visual.get_main_subject(scene)
+            seed = main_subject if main_subject and main_subject != "未知" else (keywords[0] if keywords else "思考")
+            raw_thought = self.thinker.generate_raw_thought(length=random.randint(3, 8), seed_word=seed)
 
-        # 提前判断是否触发解答，以便传给思考者
+        print(f"💭 静默念头: {raw_thought}")
+
+        # 本地审查
+        temp_reviewer = Reviewer(scene, memory_system=self.memory)
+        score, reason, concept = temp_reviewer.judge(
+            raw_thought,
+            rejection_streak=self.rejection_streak,
+            use_local=True
+        )
+        print(f"⚖️ 内部评分: {score}/10 ({reason})")
+
+        # 质量门槛
+        HINT_QUALITY_BUMP = 2
+        solver_hint = None
+        timestamp = datetime.datetime.now().strftime('%H%M%S')
+        if score >= self.min_meaning_score + HINT_QUALITY_BUMP:
+            self.memory.add_short(
+                name=f"思考痕迹_{timestamp}",
+                feature=f"{raw_thought} (得分{score})"
+            )
+            solver_hint = raw_thought
+            print(f"💡 高质量念头（{score}分），将作为推理 hint")
+        else:
+            self.memory.add_short(
+                name=f"低质量思考_{timestamp}",
+                feature=f"{raw_thought} (得分{score})"
+            )
+            print(f"💭 念头得分{score}，低于hint门槛，仅存记忆")
+
+        # 判断是否触发解答者
         solver_triggered = self.solver.should_solve(scene)
         question_text = scene if solver_triggered else ""
 
-        result = self.thinker.think(primary_keyword, scene, hint=None, question=question_text)
+        result = self.thinker.think(
+            self.visual.get_main_subject(scene) or "未知",
+            scene,
+            hint=None,
+            question=question_text
+        )
         print(f"🧠 记忆查询: {result['memory_info']}")
 
-        # 思考者是否已附带解答
         thinker_answer = result.get("thinker_answer")
 
-        # 解答者调度
         solver_answer = None
         if solver_triggered:
             if thinker_answer:
-                print(f"💡 思考者已附带解答，跳过解答者 API 调用")
+                print("💡 思考者已附带解答，跳过 API")
                 solver_answer = thinker_answer
             else:
-                print("🤔 检测到疑问，启动解答者...")
-                solution = self.solver.solve(scene, scene_description=scene)
+                print("🤔 启动解答者...")
+                solution = self.solver.solve(scene, scene_description=scene, hint=solver_hint)
                 solver_answer = solution.get("answer", "我无法回答这个问题。")
                 print(f"💡 解答者: {solver_answer[:120]}...")
 
@@ -161,7 +212,7 @@ class ConsciousnessSystem:
         is_unknown = "不认识" in result['memory_info']
         if is_unknown:
             self.unknown_streak += 1
-            self.last_unknown_keyword = primary_keyword
+            self.last_unknown_keyword = self.visual.get_main_subject(scene) or "未知"
             self.emotion.update("unknown_streak")
         else:
             self.unknown_streak = 0
@@ -169,21 +220,26 @@ class ConsciousnessSystem:
 
         rejection_bonus = min(REJECTION_BONUS_MAX, self.rejection_streak * REJECTION_BONUS_PER_STREAK)
         texts_for_planner = []
-
-        # 决定是否跳过念头生成
         skip_gen = (solver_triggered and thinker_answer is not None)
 
+        # 发言决策
         if not self.should_speak(mood, rejection_bonus):
             print("🤫 沉默")
             self.emotion.update("silence")
-            inner_murmur = self.thinker.generate_raw_thought(length=random.randint(3, 7))
-
+            inner_murmur = self.thinker.generate_raw_thought(
+                length=random.randint(3, 7),
+                seed_word=self.visual.get_main_subject(scene) or "思考"
+            )
             cached = self._get_cached_review(scene, inner_murmur)
             if cached:
                 murmur_score, murmur_reason, _ = cached
             else:
                 reviewer = Reviewer(scene, memory_system=self.memory)
-                murmur_score, murmur_reason, _ = reviewer.judge(inner_murmur, rejection_streak=self.rejection_streak)
+                murmur_score, murmur_reason, _ = reviewer.judge(
+                    inner_murmur,
+                    rejection_streak=self.rejection_streak,
+                    use_local=True
+                )
                 self._set_cached_review(scene, inner_murmur, murmur_score, murmur_reason, "")
 
             if murmur_score >= self.min_meaning_score:
@@ -200,7 +256,7 @@ class ConsciousnessSystem:
                 self._update_threshold(final_inner_score)
                 curiosity_boost = (10 - murmur_score) / 20
                 self.emotion.curiosity = min(1.0, self.emotion.curiosity + curiosity_boost)
-                print(f"💭 内心闪过无意义: {inner_murmur} ({murmur_reason}) | 反驳冲动+1 | 好奇+{curiosity_boost:.2f}")
+                print(f"💭 内心闪过无意义: {inner_murmur} | 反驳冲动+1")
         else:
             print("🗣️ 发言")
             self.emotion.update("speak")
@@ -208,11 +264,13 @@ class ConsciousnessSystem:
             best_sentence = None
             best_score = -1
             best_concept = ""
-            hint = None
+            hint = solver_hint
 
             for attempt in range(1, self.max_retries + 1):
                 current_result = self.thinker.think(
-                    primary_keyword, scene, hint=hint,
+                    self.visual.get_main_subject(scene) or "未知",
+                    scene,
+                    hint=hint,
                     question=question_text,
                     skip_thoughts=skip_gen
                 )
@@ -226,43 +284,41 @@ class ConsciousnessSystem:
                         uncached_sentences.append(s)
 
                 if uncached_sentences:
-                    new_results = reviewer.judge_batch(uncached_sentences, rejection_streak=self.rejection_streak)
-                    for s, score, explanation, concept in new_results:
-                        self._set_cached_review(scene, s, score, explanation, concept)
-                        judge_results.append((s, score, explanation, concept))
+                    new_results = reviewer.judge_batch(
+                        uncached_sentences,
+                        rejection_streak=self.rejection_streak,
+                        use_local=True
+                    )
+                    for s, sc, expl, conc in new_results:
+                        self._set_cached_review(scene, s, sc, expl, conc)
+                        judge_results.append((s, sc, expl, conc))
 
                 best_in_batch = None
                 best_in_batch_score = -1
                 best_in_batch_concept = ""
-                for s, score, explanation, concept in judge_results:
-                    if score > best_in_batch_score:
-                        best_in_batch_score = score
+                for s, sc, expl, conc in judge_results:
+                    if sc > best_in_batch_score:
+                        best_in_batch_score = sc
                         best_in_batch = s
-                        best_in_batch_concept = concept
+                        best_in_batch_concept = conc
 
-                current_best = best_in_batch
-                current_score = best_in_batch_score
-                current_concept = best_in_batch_concept
-
-                print(f"  🔄 {attempt}: {current_result['raw_sentences']} 最高分 {current_score}")
-
-                if current_score > best_score:
-                    best_score = current_score
-                    best_sentence = current_best
-                    best_concept = current_concept
+                if best_in_batch_score > best_score:
+                    best_score = best_in_batch_score
+                    best_sentence = best_in_batch
+                    best_concept = best_in_batch_concept
                     if best_concept and best_concept.strip():
                         hint = best_concept.strip()
                     else:
-                        hint = None
+                        hint = solver_hint
 
                 if best_score >= self.min_meaning_score:
-                    print(f"  ✅ 达到意义阈值，停止重试")
+                    print(f"  ✅ 达到阈值，停止重试")
                     break
                 else:
                     if attempt < self.max_retries:
-                        print("  ⚠️ 分数过低，尝试基于 hint 重新生成...")
+                        print("  ⚠️ 分数过低，重试...")
                     else:
-                        print(f"  ❌ 已达最大重试次数，采用当前最佳。")
+                        print("  ❌ 最大重试次数，采用当前最佳。")
 
             append_text = f" {best_sentence}" if best_sentence else ""
             final_output = outer_response + append_text
@@ -274,6 +330,7 @@ class ConsciousnessSystem:
             self._update_threshold(final_inner_score)
             self.rejection_streak = 0
 
+        # 好奇心提问
         if self.unknown_streak >= self.curiosity_threshold:
             question = self.language_model.generate_question(self.last_unknown_keyword)
             final_output = f"[好奇心] {question} -- {final_output}"
@@ -287,12 +344,12 @@ class ConsciousnessSystem:
             action_plan = self.planner.plan(text, scene_description=scene)
             if action_plan.get("status") == "success":
                 action_text = self.planner.generate_action_prompt(action_plan)
-                print(f"📋 规划者: {action_text}")
                 final_output = f"{final_output}\n📋 {action_text}"
                 self.planner.simulate_execution(action_plan)
+
         self.last_final_output = final_output
         print(f"✅ 最终回复: {final_output}")
-        print(f"📊 情绪状态: {mood} | 反驳冲动: {self.rejection_streak}")
+        print(f"📊 情绪: {mood} | 反驳冲动: {self.rejection_streak}")
         print("-" * 50)
 
     def close(self):
@@ -301,13 +358,12 @@ class ConsciousnessSystem:
 
 if __name__ == "__main__":
     system = ConsciousnessSystem()
-    print("=== 熵灵双层心智系统启动 ===\n")
-    print("💡 提示：每轮请输入场景描述，输入 Ctrl+C 退出程序。\n")
+    print("=== 熵灵系统启动 ===\n")
     try:
         for i in range(50):
             print(f"🔂 第 {i+1} 轮:")
             system.run_once()
     except KeyboardInterrupt:
-        print("\n👋 程序被中断，正在保存状态...")
+        print("\n👋 中断")
     finally:
         system.close()

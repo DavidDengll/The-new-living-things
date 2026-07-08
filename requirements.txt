@@ -3,3 +3,4 @@ jieba
 ddgs
 gymnasium
 numpy
+sentence-transformers
