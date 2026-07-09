@@ -1,4 +1,6 @@
 # main.py
+import os
+os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 from memory import MemorySystem
 from vision import VisualModel
 from thinker import Thinker
